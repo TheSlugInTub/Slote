@@ -8,11 +8,13 @@
 #include <string>
 #include <vector>
 
+#define ctrl(x) (x & 0x01F)
+
 using namespace std;
 
 int R, C, r, c, y, x, com, indent;
 
-string src = "noname.txt", stat = "", msg = "", mod = "n", cnt = "";
+string src = "noname.txt", stat = "", msg = "", mod = "n", cnt = "", cmdBuffer = "";
 vector<vector<int>> b = {}, bf = {};
 
 const int LINE_NUMBER_WIDTH = 5; // Width reserved for line numbers
@@ -48,6 +50,35 @@ void DisplayStartScreen(const vector<string> &startScreenContents) {
     refresh();
 }
 
+void executeCommand(const std::string& cmd)
+{
+    if (cmd == ":q")
+    {
+        endwin(); 
+        b.clear(); 
+        bf.clear(); 
+        system("clear");
+        exit(0);
+    }
+    else if (cmd == ":w")
+    {
+        ofstream ofs(src, ofstream::out); 
+        string cont = "";
+
+        for (int row = 0; row < b.size(); row++) 
+        {
+          for (int col = 0; col < b[row].size(); col++) 
+          {
+            char c = b[row][col]; if (c) cont += c;
+          } 
+          cont += "\n"; 
+        }
+
+        ofs << cont; ofs.close();
+        msg = to_string(b.size()) + " line(s) written to " + "\"" + src + "\""; 
+    }
+}
+
 int main(int argc, char **argv) 
 {
   setlocale(LC_ALL, ""); // Set the locale to the default environment locale
@@ -59,13 +90,21 @@ int main(int argc, char **argv)
   raw(); 
 
   getmaxyx(stdscr, R, C);
-  R--; 
+  R = R - 2; 
   vector<int> row;
 
   std::string startFile = "config/start.txt";
   vector<string> startScreenContents = ReadStartScreen(startFile);
   
   int chS = -1;
+
+    init_color(COLOR_BLUE, 80, 80, 80);
+    init_color(COLOR_RED, 118, 118, 117);  // Index COLOR_RED is being redefined
+    init_pair(5, COLOR_WHITE, COLOR_RED);  // Use custom color as background
+    init_pair(1, COLOR_WHITE, COLOR_BLUE);  // example: white text on blue background
+ 
+    bkgd(COLOR_PAIR(5));  // Set background color for the whole window
+    clear();
     
   DisplayStartScreen(startScreenContents);
   
@@ -114,6 +153,7 @@ int main(int argc, char **argv)
   // Main loop of program
   while (TRUE) 
   {
+    // Make sure cursor doesn't step out of bounds
     if (r < y) { y = r; }
     if (r >= y + R) { y = r - R+1; }
     if (c < x) { x = c; }
@@ -125,7 +165,7 @@ int main(int argc, char **argv)
     {
       int brw = row + y; 
 
-       // Print line numbers
+        // Print line numbers
         if (brw < b.size()) 
         {
             mvprintw(row, 0, "%*d", LINE_NUMBER_WIDTH - 1, brw + 1);
@@ -134,7 +174,6 @@ int main(int argc, char **argv)
         {
             mvprintw(row, 0, "%*s", LINE_NUMBER_WIDTH - 1, "~");
         }
-
 
       for (int col = 0; col < C; col++) 
       { 
@@ -157,16 +196,34 @@ int main(int argc, char **argv)
 
     move(R, 0);
 
-    if (msg == "") 
-        for (int i = 0; i < stat.length(); i++) 
-            addch(stat[i]);
-    else 
-    { 
-        for (int i = 0; i < msg.length(); i++) 
-        {
-            addch(msg[i]); msg = "";
-        }
+    attron(COLOR_PAIR(1));
+
+    std::string display_line;
+    
+    if (msg.empty()) {
+        display_line = stat;
+    } else {
+        display_line = msg;
     }
+
+    // Ensure display_line is the same length as the width of the window or the desired line length
+    if (display_line.length() < C) {
+        display_line += std::string(C - display_line.length(), ' ');
+    } else {
+        display_line = display_line.substr(0, C); // Truncate if it's too long
+    }
+
+    // Display the line
+    for (int i = 0; i < display_line.length(); i++) {
+        addch(display_line[i]);
+        msg.clear();
+    }
+
+    move(R + 1 , 0);
+    for (int i = 0; i < cmdBuffer.length(); i++) 
+        addch(cmdBuffer[i]);
+
+    attroff(COLOR_PAIR(1));
 
     clrtoeol(); 
     curs_set(0); 
@@ -181,13 +238,6 @@ int main(int argc, char **argv)
         ch = getch();
     }
     
-    string modes = "irR";
-
-    if (isdigit(ch) && !(modes.find(mod[0]) != string::npos)) 
-    {
-        cnt += ch;
-    }
-
     if (ch == ('[' & 0x1f)) 
     { 
         if (c) 
@@ -217,6 +267,15 @@ int main(int argc, char **argv)
             if (c < b[r].size()) // Move one letter forward if not at the end of the line
                 c++; 
             continue; 
+        }
+        else if (ch == ctrl('c'))
+        {
+            msg = "Type ':q' to exit Slote.";
+        }
+        else if (ch == ':')
+        {
+            cmdBuffer = ":";
+            mod = "c";
         }
         else if (ch == 'o') 
         { 
@@ -307,26 +366,7 @@ int main(int argc, char **argv)
         else if (c) 
             c--;
         } 
-      else if (ch == 'q') 
-         goto exitprog; 
-      else if (ch == 'w') 
-      {
-        ofstream ofs(src, ofstream::out); 
-        string cont = "";
-
-        for (int row = 0; row < b.size(); row++) 
-        {
-          for (int col = 0; col < b[row].size(); col++) 
-          {
-            char c = b[row][col]; if (c) cont += c;
-          } 
-          cont += "\n"; 
-        }
-
-        ofs << cont; ofs.close();
-        msg = to_string(b.size()) + " line(s) written to " + "\"" + src + "\""; 
-      } 
-      else {
+     else {
         switch (ch) {
           case '#': 
               c = 0; 
@@ -437,6 +477,20 @@ int main(int argc, char **argv)
             R--; 
             r = c = 0; 
             refresh();
+        }
+    }
+    else if (mod == "c")
+    {
+        if (ch != (ch & 0x1f) && ch < 128)
+        {
+            char newCh = ch;
+            cmdBuffer = cmdBuffer + newCh;
+        }
+        else if (ch == '\n')
+        {
+            executeCommand(cmdBuffer);
+            cmdBuffer.clear();
+            mod = "n";
         }
     }
   } 
