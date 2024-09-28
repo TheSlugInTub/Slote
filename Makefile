@@ -1,3 +1,2 @@
 all:
-	g++ -Ofast v.cpp -o v -l ncurses
-
+	g++ -Ofast src/slote.cpp -o slote -Iinclude/ -lncursesw
