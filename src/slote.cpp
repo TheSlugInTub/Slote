@@ -407,10 +407,10 @@ int main(int argc, char **argv)
       }
       else if (ch == '\t')
       {
-          b[r].insert(b[r].begin() + c, ch);
-          b[r].insert(b[r].begin() + c, ch);
-          b[r].insert(b[r].begin() + c, ch);
-          b[r].insert(b[r].begin() + c, ch);
+          b[r].insert(b[r].begin() + c, ' ');
+          b[r].insert(b[r].begin() + c, ' ');
+          b[r].insert(b[r].begin() + c, ' ');
+          b[r].insert(b[r].begin() + c, ' ');
           c = c + 4;
       }
       else if (ch != (ch & 0x1f) && ch < 128) 
