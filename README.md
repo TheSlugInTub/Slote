@@ -26,4 +26,4 @@ Press a to enter insert mode, the cursor will be set forward one letter.
 
 Type :q in normal mode to quit.
 
-Type :e <file-name> in normal mode to open a file.
+Type :e [file-name] in normal mode to open a file.
