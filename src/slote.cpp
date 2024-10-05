@@ -7,6 +7,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <cstdlib>  // For getenv
 
 #define ctrl(x) (x & 0x01F)
 
@@ -19,18 +20,28 @@ vector<vector<int>> b = {}, bf = {};
 
 const int LINE_NUMBER_WIDTH = 5; // Width reserved for line numbers
                                 
-vector<string> ReadStartScreen(const string &fileName) {
+string ExpandTilde(const string& path) {
+    if (!path.empty() && path[0] == '~') {
+        const char* home = getenv("HOME");
+        if (home) {
+            return string(home) + path.substr(1);  // Replace '~' with home directory
+        }
+    }
+    return path;
+}
+
+vector<string> ReadStartScreen(const string& fileName) {
     vector<string> startScreenContents;
-    ifstream file(fileName);
+    string expandedFileName = ExpandTilde(fileName);  // Expand the tilde
+
+    ifstream file(expandedFileName);
     if (file.is_open()) {
         string line;
         while (getline(file, line)) {
             startScreenContents.push_back(line);
         }
         file.close();
-    }
-    else 
-    { 
+    } else {
         startScreenContents.push_back("Openwell Slote v1.0");
     }
 
@@ -52,6 +63,8 @@ void DisplayStartScreen(const vector<string> &startScreenContents) {
 
 void executeCommand(const std::string& cmd)
 {
+    std::string openPrefix = ":e";
+
     if (cmd == ":q")
     {
         endwin(); 
@@ -76,27 +89,62 @@ void executeCommand(const std::string& cmd)
 
         ofs << cont; ofs.close();
         msg = to_string(b.size()) + " line(s) written to " + "\"" + src + "\""; 
+    }else if (cmd.find(openPrefix) == 0)
+    {
+        std::string rest = cmd.substr(openPrefix.length());
+        rest.erase(0, 1);
+        src = rest;
+        b.clear();
+        try 
+        { 
+            vector<int> row;
+
+            ifstream ifs(src); 
+            string cont((istreambuf_iterator<char>(ifs)), (istreambuf_iterator<char>())); 
+            for (int i = 0; i < cont.size(); i++) 
+            {
+                if (cont[i] == '\n') 
+                { 
+                    b.push_back(row); row.clear(); 
+                }
+                else 
+                { 
+                    row.push_back(cont[i]); 
+                } 
+            } 
+
+            if (row.size()) 
+            { 
+                b.push_back(row); 
+            } 
+
+            ifs.close(); 
+        } 
+        catch (exception &e) {}
+    }else
+    {
+        msg = "Command " + cmd + " was not found";
     }
 }
 
 int main(int argc, char **argv) 
 {
-  setlocale(LC_ALL, ""); // Set the locale to the default environment locale
-  setlocale(LC_CTYPE, ""); // Set locale for UTF-8 support
-  initscr(); 
-  start_color();
-  nodelay(stdscr, TRUE); 
-  noecho(); 
-  raw(); 
+    setlocale(LC_ALL, ""); // Set the locale to the default environment locale
+    setlocale(LC_CTYPE, ""); // Set locale for UTF-8 support
+    initscr(); 
+    start_color();
+    nodelay(stdscr, TRUE); 
+    noecho(); 
+    raw(); 
 
-  getmaxyx(stdscr, R, C);
-  R = R - 2; 
-  vector<int> row;
+    getmaxyx(stdscr, R, C);
+    R = R - 2; 
+    vector<int> row;
 
-  std::string startFile = "config/start.txt";
-  vector<string> startScreenContents = ReadStartScreen(startFile);
+    std::string startFile = "~/.config/slote/start.txt";
+    vector<string> startScreenContents = ReadStartScreen(startFile);
   
-  int chS = -1;
+    int chS = -1;
 
     init_color(COLOR_BLUE, 80, 80, 80);
     init_color(COLOR_RED, 118, 118, 117);  // Index COLOR_RED is being redefined
@@ -106,7 +154,7 @@ int main(int argc, char **argv)
     bkgd(COLOR_PAIR(5));  // Set background color for the whole window
     clear();
     
-  DisplayStartScreen(startScreenContents);
+    DisplayStartScreen(startScreenContents);
   
     while (chS == -1)
     {
@@ -115,38 +163,40 @@ int main(int argc, char **argv)
   
     clear();
 
-
-  if (argc == 2) 
-  {
-      src = argv[1]; 
-  }else 
-  {
-      b.push_back(row);
-  }
-  
-  try 
-  { 
-    vector<int> row;
-
-    ifstream ifs(src); 
-    string cont((istreambuf_iterator<char>(ifs)), (istreambuf_iterator<char>())); 
-    for (int i = 0; i < cont.size(); i++) 
+    if (argc == 2) 
     {
-        if (cont[i] == '\n') 
-        { 
-            b.push_back(row); row.clear(); 
-        }
-        else 
-        { 
-            row.push_back(cont[i]); 
+        src = argv[1]; 
+    }else 
+    {
+        b.push_back(row);
+    }
+  
+    try 
+    { 
+        vector<int> row;
+
+        ifstream ifs(src); 
+        string cont((istreambuf_iterator<char>(ifs)), (istreambuf_iterator<char>())); 
+        for (int i = 0; i < cont.size(); i++) 
+        {
+            if (cont[i] == '\n') 
+            { 
+                b.push_back(row); row.clear(); 
+            }
+            else 
+            { 
+                row.push_back(cont[i]); 
+            } 
         } 
+
+        if (row.size()) 
+        { 
+            b.push_back(row); 
+        } 
+
+        ifs.close(); 
     } 
-
-    if (row.size()) { b.push_back(row); } 
-    ifs.close(); 
-  } 
-
-  catch (exception &e) {}
+    catch (exception &e) {}
 
   if (src != "noname.txt" && b.size() == 0) { b.push_back(row); }
   
@@ -226,9 +276,7 @@ int main(int argc, char **argv)
     attroff(COLOR_PAIR(1));
 
     clrtoeol(); 
-    curs_set(0); 
     move(r - y, c - x + LINE_NUMBER_WIDTH); 
-    curs_set(1); 
     refresh();
     
     int ch = -1; 
@@ -245,6 +293,7 @@ int main(int argc, char **argv)
             c--; 
         }
         mod = 'n'; 
+        curs_set(1);
         cnt = ""; 
         continue; 
     }
@@ -259,13 +308,14 @@ int main(int argc, char **argv)
             
             if (c >= b[r].size()) 
                 c = 0; 
-            curs_set(1);
+            curs_set(3);
             continue; 
         }else if (ch == 'a') 
         { 
             mod = "i"; 
             if (c < b[r].size()) // Move one letter forward if not at the end of the line
                 c++; 
+            curs_set(3);
             continue; 
         }
         else if (ch == ctrl('c'))
@@ -481,7 +531,10 @@ int main(int argc, char **argv)
     }
     else if (mod == "c")
     {
-        if (ch != (ch & 0x1f) && ch < 128)
+        if (ch == KEY_BACKSPACE || ch == '\b' || ch == 127) 
+        {
+            cmdBuffer.pop_back(); 
+        }else if (ch != (ch & 0x1f) && ch < 128)
         {
             char newCh = ch;
             cmdBuffer = cmdBuffer + newCh;
@@ -496,9 +549,9 @@ int main(int argc, char **argv)
   } 
  
 exitprog:
-  endwin(); 
-  b.clear(); 
-  bf.clear(); 
-  system("clear"); 
-  return 0;
+    endwin(); 
+    b.clear(); 
+    bf.clear(); 
+    system("clear"); 
+    return 0;
 }
