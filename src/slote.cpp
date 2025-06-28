@@ -1,557 +1,737 @@
-#include <codecvt>
-#include <cwchar>
-#include <ncurses.h>
-#include <locale.h>
 #include <algorithm>
-#include <ctype.h>
+#include <cstdlib> // For getenv
+#include <curses.h>
 #include <fstream>
+#include <locale.h>
 #include <string>
 #include <vector>
-#include <cstdlib>  // For getenv
 
 #define ctrl(x) (x & 0x01F)
 
-using namespace std;
+enum Mode
+{
+    Mode_Normal,
+    Mode_Insert,
+    Mode_Command,
+    Mode_Replace,
+    Mode_ReplaceContinuous
+};
 
-int R, C, r, c, y, x, com, indent;
+int terminalRows, terminalCols, currentRow, currentCol,
+    viewportTopRow, viewportLeftCol, command, indentLevel;
 
-string src = "noname.txt", stat = "", msg = "", mod = "n", cnt = "", cmdBuffer = "";
-vector<vector<int>> b = {}, bf = {};
+std::string filename = "noname.txt", statusLine = "",
+            messageText = "", countString = "", commandBuffer = "";
+std::vector<std::vector<int>> buffer = {}, yankedBuffer = {};
+
+Mode currentMode;
 
 const int LINE_NUMBER_WIDTH = 5; // Width reserved for line numbers
-                                
-string ExpandTilde(const string& path) {
-    if (!path.empty() && path[0] == '~') {
+
+std::ofstream debugFile;
+
+#define ENTER_KEY 13
+
+std::string ExpandTilde(const std::string& path)
+{
+    if (!path.empty() && path[0] == '~')
+    {
         const char* home = getenv("HOME");
-        if (home) {
-            return string(home) + path.substr(1);  // Replace '~' with home directory
+        if (home)
+        {
+            return std::string(home) +
+                   path.substr(1); // Replace '~' with home directory
         }
     }
     return path;
 }
 
-vector<string> ReadStartScreen(const string& fileName) {
-    vector<string> startScreenContents;
-    string expandedFileName = ExpandTilde(fileName);  // Expand the tilde
+std::vector<std::string> ReadStartScreen(const std::string& fileName)
+{
+    std::vector<std::string> startScreenContents;
+    std::string              expandedFileName =
+        ExpandTilde(fileName); // Expand the tilde
 
-    ifstream file(expandedFileName);
-    if (file.is_open()) {
-        string line;
-        while (getline(file, line)) {
+    std::ifstream file(expandedFileName);
+    if (file.is_open())
+    {
+        std::string line;
+        while (getline(file, line))
+        {
             startScreenContents.push_back(line);
         }
         file.close();
-    } else {
+    }
+    else
+    {
         startScreenContents.push_back("Openwell Slote v1.0");
     }
 
     return startScreenContents;
 }
 
-void DisplayStartScreen(const vector<string> &startScreenContents) {
+void DisplayStartScreen(
+    const std::vector<std::string>& startScreenContents)
+{
     clear();
-    int startY = (R - startScreenContents.size()) / 2;
+    int startY = (terminalRows - startScreenContents.size()) / 2;
     int startX;
-    for (int i = 0; i < startScreenContents.size(); i++) {
-        startX = (C - startScreenContents[i].length()) / 2;
-        mvprintw(startY + i, startX, "%s", startScreenContents[i].c_str());
+    for (int i = 0; i < startScreenContents.size(); i++)
+    {
+        startX = (terminalCols - startScreenContents[i].length()) / 2;
+        mvprintw(startY + i, startX, "%s",
+                 startScreenContents[i].c_str());
     }
 
-    mvprintw(R - 1, (C - 26) / 2, "Press any key to continue...");
+    mvprintw(terminalRows - 1, (terminalCols - 26) / 2,
+             "Press any key to continue...");
     refresh();
 }
 
 void executeCommand(const std::string& cmd)
 {
-    std::string openPrefix = ":e";
-
     if (cmd == ":q")
     {
-        endwin(); 
-        b.clear(); 
-        bf.clear(); 
+        endwin();
+        buffer.clear();
+        yankedBuffer.clear();
         system("clear");
         exit(0);
     }
     else if (cmd == ":w")
     {
-        ofstream ofs(src, ofstream::out); 
-        string cont = "";
+        std::ofstream ofs(filename, std::ofstream::out);
+        std::string   fileContent = "";
 
-        for (int row = 0; row < b.size(); row++) 
+        for (int row = 0; row < buffer.size(); row++)
         {
-          for (int col = 0; col < b[row].size(); col++) 
-          {
-            char c = b[row][col]; if (c) cont += c;
-          } 
-          cont += "\n"; 
+            for (int col = 0; col < buffer[row].size(); col++)
+            {
+                char character = buffer[row][col];
+                if (character)
+                    fileContent += character;
+            }
+            fileContent += "\n";
         }
 
-        ofs << cont; ofs.close();
-        msg = to_string(b.size()) + " line(s) written to " + "\"" + src + "\""; 
-    }else if (cmd.find(openPrefix) == 0)
+        ofs << fileContent;
+        ofs.close();
+        messageText = std::to_string(buffer.size()) +
+                      " line(s) written to " + "\"" + filename + "\"";
+    }
+    else if (cmd.find(":e") == 0)
     {
-        std::string rest = cmd.substr(openPrefix.length());
+        std::string rest = cmd.substr(2); // length of ":e"
         rest.erase(0, 1);
-        src = rest;
-        b.clear();
-        try 
-        { 
-            vector<int> row;
+        filename = rest;
+        buffer.clear();
+        try
+        {
+            std::vector<int> row;
 
-            ifstream ifs(src); 
-            string cont((istreambuf_iterator<char>(ifs)), (istreambuf_iterator<char>())); 
-            for (int i = 0; i < cont.size(); i++) 
+            std::ifstream ifs(filename);
+            std::string   fileContent(
+                (std::istreambuf_iterator<char>(ifs)),
+                (std::istreambuf_iterator<char>()));
+            for (int i = 0; i < fileContent.size(); i++)
             {
-                if (cont[i] == '\n') 
-                { 
-                    b.push_back(row); row.clear(); 
+                if (fileContent[i] == '\n')
+                {
+                    buffer.push_back(row);
+                    row.clear();
                 }
-                else 
-                { 
-                    row.push_back(cont[i]); 
-                } 
-            } 
+                else
+                {
+                    row.push_back(fileContent[i]);
+                }
+            }
 
-            if (row.size()) 
-            { 
-                b.push_back(row); 
-            } 
+            if (row.size())
+            {
+                buffer.push_back(row);
+            }
 
-            ifs.close(); 
-        } 
-        catch (exception &e) {}
-    }else
+            ifs.close();
+        }
+        catch (std::exception& e)
+        {
+        }
+    }
+    else
     {
-        msg = "Command " + cmd + " was not found";
+        messageText = "Command " + cmd + " was not found";
     }
 }
 
-int main(int argc, char **argv) 
+int main(int argc, char** argv)
 {
-    setlocale(LC_ALL, ""); // Set the locale to the default environment locale
+    debugFile.open("debug.txt");
+
+    setlocale(LC_ALL,
+              ""); // Set the locale to the default environment locale
     setlocale(LC_CTYPE, ""); // Set locale for UTF-8 support
-    initscr(); 
+    initscr();
     start_color();
-    nodelay(stdscr, TRUE); 
-    noecho(); 
-    raw(); 
+    nodelay(stdscr, TRUE);
+    noecho();
+    raw();
 
-    getmaxyx(stdscr, R, C);
-    R = R - 2; 
-    vector<int> row;
+    getmaxyx(stdscr, terminalRows, terminalCols);
+    terminalRows = terminalRows - 2;
+    std::vector<int> row;
 
-    std::string startFile = "~/.config/slote/start.txt";
-    vector<string> startScreenContents = ReadStartScreen(startFile);
-  
-    int chS = -1;
+    std::string              startFile = "~/.config/slote/start.txt";
+    std::vector<std::string> startScreenContents =
+        ReadStartScreen(startFile);
+
+    int startScreenChar = -1;
 
     init_color(COLOR_BLUE, 80, 80, 80);
-    init_color(COLOR_RED, 118, 118, 117);  // Index COLOR_RED is being redefined
-    init_pair(5, COLOR_WHITE, COLOR_RED);  // Use custom color as background
-    init_pair(1, COLOR_WHITE, COLOR_BLUE);  // example: white text on blue background
- 
-    bkgd(COLOR_PAIR(5));  // Set background color for the whole window
+    init_color(COLOR_RED, 118, 118,
+               117); // Index COLOR_RED is being redefined
+    init_pair(5, COLOR_WHITE,
+              COLOR_RED); // Use custom color as background
+    init_pair(1, COLOR_WHITE,
+              COLOR_BLUE); // example: white text on blue background
+
+    bkgd(COLOR_PAIR(5)); // Set background color for the whole window
     clear();
-    
+
     DisplayStartScreen(startScreenContents);
-  
-    while (chS == -1)
-    {
-        chS = getch();
-    }
-  
+
+    while (startScreenChar == -1) { startScreenChar = getch(); }
+
     clear();
 
-    if (argc == 2) 
+    if (argc == 2)
     {
-        src = argv[1]; 
-    }else 
-    {
-        b.push_back(row);
+        filename = argv[1];
     }
-  
-    try 
-    { 
-        vector<int> row;
+    else
+    {
+        buffer.push_back(row);
+    }
 
-        ifstream ifs(src); 
-        string cont((istreambuf_iterator<char>(ifs)), (istreambuf_iterator<char>())); 
-        for (int i = 0; i < cont.size(); i++) 
+    try
+    {
+        std::vector<int> row;
+
+        std::ifstream ifs(filename);
+        std::string fileContent((std::istreambuf_iterator<char>(ifs)),
+                                (std::istreambuf_iterator<char>()));
+        for (int i = 0; i < fileContent.size(); i++)
         {
-            if (cont[i] == '\n') 
-            { 
-                b.push_back(row); row.clear(); 
+            if (fileContent[i] == '\n')
+            {
+                buffer.push_back(row);
+                row.clear();
             }
-            else 
-            { 
-                row.push_back(cont[i]); 
-            } 
-        } 
-
-        if (row.size()) 
-        { 
-            b.push_back(row); 
-        } 
-
-        ifs.close(); 
-    } 
-    catch (exception &e) {}
-
-  if (src != "noname.txt" && b.size() == 0) { b.push_back(row); }
-  
-  // Main loop of program
-  while (TRUE) 
-  {
-    // Make sure cursor doesn't step out of bounds
-    if (r < y) { y = r; }
-    if (r >= y + R) { y = r - R+1; }
-    if (c < x) { x = c; }
-    if (c >= x + C) { x = c - C+1; }
-
-    move(0, 0); 
-
-    for (int row = 0; row < R; row++) 
-    {
-      int brw = row + y; 
-
-        // Print line numbers
-        if (brw < b.size()) 
-        {
-            mvprintw(row, 0, "%*d", LINE_NUMBER_WIDTH - 1, brw + 1);
-        } 
-        else 
-        {
-            mvprintw(row, 0, "%*s", LINE_NUMBER_WIDTH - 1, "~");
-        }
-
-      for (int col = 0; col < C; col++) 
-      { 
-        int bcl = col + x;
-        if (brw < b.size() && bcl < b[brw].size()) 
-        { 
-            mvaddch(row, col + LINE_NUMBER_WIDTH, b[brw][bcl]); 
-        }
-      } 
-
-      clrtoeol(); 
-      addstr(brw < b.size()-1 ? "\n" : "\n~"); 
-    }
-
-    stat = mod + " \"" + src + "\" " + to_string(r+1) + "/" + to_string(b.size());
-
-    stat += b.size() ? " --" + to_string((int)((r+1)*100/b.size())) + "%-- " : "";
-
-    stat += "col " + to_string(c+1) + " --x" + (cnt.length() ? cnt : "0") + "--";
-
-    move(R, 0);
-
-    attron(COLOR_PAIR(1));
-
-    std::string display_line;
-    
-    if (msg.empty()) {
-        display_line = stat;
-    } else {
-        display_line = msg;
-    }
-
-    // Ensure display_line is the same length as the width of the window or the desired line length
-    if (display_line.length() < C) {
-        display_line += std::string(C - display_line.length(), ' ');
-    } else {
-        display_line = display_line.substr(0, C); // Truncate if it's too long
-    }
-
-    // Display the line
-    for (int i = 0; i < display_line.length(); i++) {
-        addch(display_line[i]);
-        msg.clear();
-    }
-
-    move(R + 1 , 0);
-    for (int i = 0; i < cmdBuffer.length(); i++) 
-        addch(cmdBuffer[i]);
-
-    attroff(COLOR_PAIR(1));
-
-    clrtoeol(); 
-    move(r - y, c - x + LINE_NUMBER_WIDTH); 
-    refresh();
-    
-    int ch = -1; 
-
-    while (ch == -1) 
-    {
-        ch = getch();
-    }
-    
-    if (ch == ('[' & 0x1f)) 
-    { 
-        if (c) 
-        {
-            c--; 
-        }
-        mod = 'n'; 
-        curs_set(1);
-        cnt = ""; 
-        continue; 
-    }
-
-    int times = atoi(cnt.c_str()); 
-
-    if (mod == "n") 
-    {
-        if (ch == 'i') 
-        { 
-            mod = "i"; 
-            
-            if (c >= b[r].size()) 
-                c = 0; 
-            curs_set(3);
-            continue; 
-        }else if (ch == 'a') 
-        { 
-            mod = "i"; 
-            if (c < b[r].size()) // Move one letter forward if not at the end of the line
-                c++; 
-            curs_set(3);
-            continue; 
-        }
-        else if (ch == ctrl('c'))
-        {
-            msg = "Type ':q' to exit Slote.";
-        }
-        else if (ch == ':')
-        {
-            cmdBuffer = ":";
-            mod = "c";
-        }
-        else if (ch == 'o') 
-        { 
-            vector<int> row; 
-            b.insert(b.begin() + r+1, row); 
-            r++; 
-            c = 0; 
-            mod = "i"; 
-        }
-        else if (ch == 'O') 
-        { 
-            vector<int> row; 
-            b.insert(b.begin() + r, row); 
-            c = 0; 
-            mod = "i"; 
-        }
-        else if (ch == 'A') 
-        { 
-            mod = "i"; 
-            c = b[r].size(); 
-        }
-        else if (ch == 'r') 
-        { 
-            mod = "r"; 
-        } 
-        else if (ch == 'R') 
-        { 
-            mod = "R"; 
-        }
-        else if (ch == 'G') 
-        { 
-            r = (times-1 <= b.size()-1 ? times-1 : b.size() - 1); 
-            cnt = ""; 
-        }
-        else if (ch =='p' and bf.size()) 
-        { 
-            for (int i = 0; i < bf.size(); i++) 
+            else
             {
-                b.insert(b.begin() + r+i+1, bf[i]);
-            } 
-            r += bf.size(); 
+                row.push_back(fileContent[i]);
+            }
         }
-        else if (ch == 'y' || ch == 'd') 
+
+        if (row.size())
         {
-            bf.clear(); 
-            for (int i = 0; i < (cnt.length() ? times : 1); i++) 
+            buffer.push_back(row);
+        }
+
+        ifs.close();
+    }
+    catch (std::exception& e)
+    {
+    }
+
+    if (filename != "noname.txt" && buffer.size() == 0)
+    {
+        buffer.push_back(row);
+    }
+
+    // Main loop of program
+    while (TRUE)
+    {
+        // Make sure cursor doesn't step out of bounds
+        if (currentRow < viewportTopRow)
+        {
+            viewportTopRow = currentRow;
+        }
+        if (currentRow >= viewportTopRow + terminalRows)
+        {
+            viewportTopRow = currentRow - terminalRows + 1;
+        }
+        if (currentCol < viewportLeftCol)
+        {
+            viewportLeftCol = currentCol;
+        }
+        if (currentCol >= viewportLeftCol + terminalCols)
+        {
+            viewportLeftCol = currentCol - terminalCols + 1;
+        }
+
+        move(0, 0);
+
+        for (int row = 0; row < terminalRows; row++)
+        {
+            int bufferRowIndex = row + viewportTopRow;
+
+            // Print line numbers
+            if (bufferRowIndex < buffer.size())
             {
-                if (r+i < b.size()) 
-                { 
-                    vector<int> row; 
-                   
-                    for (int j = 0; j < b[r+i].size(); j++) 
-                    {
-                        row.insert(row.begin() + j, b[r+i][j]); 
-                    } 
-                    bf.push_back(row); 
-                }
+                mvprintw(row, 0, "%*d", LINE_NUMBER_WIDTH - 1,
+                         bufferRowIndex + 1);
+            }
+            else
+            {
+                mvprintw(row, 0, "%*s", LINE_NUMBER_WIDTH - 1, "~");
             }
 
-            if (ch == 'd') 
+            for (int col = 0; col < terminalCols; col++)
             {
-                for (int i = 0; i < (cnt.length() ? times : 1); i++) 
+                int bufferColIndex = col + viewportLeftCol;
+                if (bufferRowIndex < buffer.size() &&
+                    bufferColIndex < buffer[bufferRowIndex].size())
                 {
-                    if (b.size() > 1 && r < b.size()) 
-                        b.erase(b.begin() + r);
-                    if (r == b.size()) 
-                        r--;
-                } 
-            }
-            cnt = "";
-            msg = (ch == 'y' ? "Yank " : "Delete ") + to_string(bf.size()) + " line(s)";
-        } 
-        else if (ch == ' ' || ch == 127) 
-        {
-            for (int i = 0; i < (cnt.length() ? times : 1); i++) 
-            {
-                if (r+i < b.size()) 
-                { 
-                    if (ch == ' ' && c < b[r+i].size()) 
-                        b[r+i].insert(b[r+i].begin() + c, 32);
-                    else if (ch == 127 && c && c < b[r+i].size()) 
-                        b[r+i].erase(b[r+i].begin() + c-1); 
+                    mvaddch(row, col + LINE_NUMBER_WIDTH,
+                            buffer[bufferRowIndex][bufferColIndex]);
                 }
             }
 
-        if (ch == ' ') 
-            c++; 
-        else if (c) 
-            c--;
-        } 
-     else {
-        switch (ch) {
-          case '#': 
-              c = 0; 
-              break;
-          case '$': 
-              c = b[r].size(); 
-              break;
-          case 'x': 
-              if (b[r].size()) 
-              {
-                  b[r].erase(b[r].begin() + c); 
-              }
-              break;
-          case 'h': 
-              c ? c-- : c;
-              break;
-          case 'j': 
-              r < b.size()-1 ? r++ : r;
-              break;
-          case 'k': 
-              r ? r-- : r; 
-              break;
-          case 'l': 
-              c < b[r].size()-1 ? c++ : c; 
-              break;
-        } 
-        int rwl = r < b.size() ? b[r].size() : 0;
-        if (c > rwl -1) 
-        {
-            c = rwl ? rwl-1 : rwl;
+            clrtoeol();
+            addstr(bufferRowIndex < buffer.size() - 1 ? "\n" : "\n~");
         }
-      } 
-      continue;
-    } 
-    else if (mod == "i") 
-    {
-      indent = cnt.length() ? times : 0;
-      if (ch == '\n') 
-      {
-        vector<int> right(b[r].size() - c);
-        vector<int> left(c);
-        copy(b[r].begin() + c, b[r].begin() + b[r].size(), right.begin());
-        copy(b[r].begin(), b[r].begin() + c, left.begin()); b[r].clear();
 
-        b[r] = left; 
-        r++; 
-        c = 0; 
-        
-        b.insert(b.begin() + r, right);
-        left.clear();
-        right.clear();
+        std::string modeString;
 
-        for (int i = 0; i < indent; i++) 
-        { 
-            b[r].insert(b[r].begin() + c, 32);
-            c += 1;
-        }
-      } 
-      else if (ch == KEY_BACKSPACE || ch == '\b' || ch == 127) 
-      {
-        if (c) 
-        { 
-            c--; 
-            b[r].erase(b[r].begin() + c); 
-        }
-        else if (r) 
+        switch (currentMode)
         {
-          vector<int> right(b[r].size() - c);
-          vector<int> left(c);
-          copy(b[r].begin() + c, b[r].begin() + b[r].size(), right.begin());
-          copy(b[r].begin(), b[r].begin() + c, left.begin());
-          b.erase(b.begin() + r);
-          r--;
-          c = b[r].size();
-          b[r].insert(b[r].end(), right.begin(), right.end());
-          left.clear(); right.clear();
+            case Mode_Normal:
+            {
+                modeString = "n";
+                break;
+            }
+            case Mode_Insert:
+            {
+                modeString = "i";
+                break;
+            }
+            case Mode_Command:
+            {
+                modeString = "c";
+                break;
+            }
+            case Mode_Replace:
+            {
+                modeString = "r";
+                break;
+            }
+            case Mode_ReplaceContinuous:
+            {
+                modeString = "R";
+                break;
+            }
         }
-      }
-      else if (ch == '\t')
-      {
-          b[r].insert(b[r].begin() + c, ' ');
-          b[r].insert(b[r].begin() + c, ' ');
-          b[r].insert(b[r].begin() + c, ' ');
-          b[r].insert(b[r].begin() + c, ' ');
-          c = c + 4;
-      }
-      else if (ch != (ch & 0x1f) && ch < 128) 
-      { 
-          b[r].insert(b[r].begin() + c, ch); 
-          c++;
-      }
-    } 
-    else if (mod == "r") 
-    { 
-        b[r][c] = ch; 
-        mod = "n"; 
-    } 
-    else if (mod == "R")
-    {
-        if (ch != (ch & 0x1f) && ch < 128 && c < b[r].size()) 
-        { 
-            b[r][c] = ch; 
-            c++; 
+
+        statusLine = modeString + " \"" + filename + "\" " +
+                     std::to_string(currentRow + 1) + "/" +
+                     std::to_string(buffer.size());
+
+        statusLine +=
+            buffer.size()
+                ? " --" +
+                      std::to_string((int)((currentRow + 1) * 100 /
+                                           buffer.size())) +
+                      "%-- "
+                : "";
+
+        statusLine +=
+            "col " + std::to_string(currentCol + 1) + " --x" +
+            (countString.length() ? countString : "0") + "--";
+
+        move(terminalRows, 0);
+
+        attron(COLOR_PAIR(1));
+
+        std::string display_line;
+
+        if (messageText.empty())
+        {
+            display_line = statusLine;
         }
-        if (ch == KEY_RESIZE) 
-        { 
-            getmaxyx(stdscr, R, C); 
-            R--; 
-            r = c = 0; 
-            refresh();
+        else
+        {
+            display_line = messageText;
+        }
+
+        // Ensure display_line is the same length as the width of the
+        // window or the desired line length
+        if (display_line.length() < terminalCols)
+        {
+            display_line += std::string(
+                terminalCols - display_line.length(), ' ');
+        }
+        else
+        {
+            display_line = display_line.substr(
+                0, terminalCols); // Truncate if it's too long
+        }
+
+        // Display the line
+        for (int i = 0; i < display_line.length(); i++)
+        {
+            addch(display_line[i]);
+            messageText.clear();
+        }
+
+        move(terminalRows + 1, 0);
+        for (int i = 0; i < commandBuffer.length(); i++)
+            addch(commandBuffer[i]);
+
+        attroff(COLOR_PAIR(1));
+
+        clrtoeol();
+        move(currentRow - viewportTopRow,
+             currentCol - viewportLeftCol + LINE_NUMBER_WIDTH);
+        refresh();
+
+        int inputChar = -1;
+
+        while (inputChar == -1) { inputChar = getch(); }
+
+        if (inputChar == ('[' & 0x1f))
+        {
+            if (currentCol)
+            {
+                currentCol--;
+            }
+            currentMode = Mode_Normal;
+            curs_set(1);
+            countString = "";
+            continue;
+        }
+
+        int repeatCount = atoi(countString.c_str());
+
+        if (currentMode == Mode_Normal)
+        {
+            if (inputChar == 'i')
+            {
+                currentMode = Mode_Insert;
+
+                if (currentCol >= buffer[currentRow].size())
+                    currentCol = 0;
+                curs_set(3);
+                continue;
+            }
+            else if (inputChar == 'a')
+            {
+                currentMode = Mode_Insert;
+                if (currentCol <
+                    buffer[currentRow]
+                        .size()) // Move one letter forward if not
+                                 // at the end of the line
+                    currentCol++;
+                curs_set(3);
+                continue;
+            }
+            else if (inputChar == ctrl('c'))
+            {
+                messageText = "Type ':q' to exit Slote.";
+            }
+            else if (inputChar == ':')
+            {
+                commandBuffer = ":";
+                currentMode = Mode_Command;
+            }
+            else if (inputChar == 'o')
+            {
+                std::vector<int> row;
+                buffer.insert(buffer.begin() + currentRow + 1, row);
+                currentRow++;
+                currentCol = 0;
+                currentMode = Mode_Insert;
+            }
+            else if (inputChar == 'O')
+            {
+                std::vector<int> row;
+                buffer.insert(buffer.begin() + currentRow, row);
+                currentCol = 0;
+                currentMode = Mode_Insert;
+            }
+            else if (inputChar == 'A')
+            {
+                currentMode = Mode_Insert;
+                currentCol = buffer[currentRow].size();
+            }
+            else if (inputChar == 'r')
+            {
+                currentMode = Mode_Replace;
+            }
+            else if (inputChar == 'R')
+            {
+                currentMode = Mode_ReplaceContinuous;
+            }
+            else if (inputChar == 'G')
+            {
+                currentRow = (repeatCount - 1 <= buffer.size() - 1
+                                  ? repeatCount - 1
+                                  : buffer.size() - 1);
+                countString = "";
+            }
+            else if (inputChar == 'p' and yankedBuffer.size())
+            {
+                for (int i = 0; i < yankedBuffer.size(); i++)
+                {
+                    buffer.insert(buffer.begin() + currentRow + i + 1,
+                                  yankedBuffer[i]);
+                }
+                currentRow += yankedBuffer.size();
+            }
+            else if (inputChar == 'y' || inputChar == 'd')
+            {
+                yankedBuffer.clear();
+                for (int i = 0;
+                     i < (countString.length() ? repeatCount : 1);
+                     i++)
+                {
+                    if (currentRow + i < buffer.size())
+                    {
+                        std::vector<int> row;
+
+                        for (int j = 0;
+                             j < buffer[currentRow + i].size(); j++)
+                        {
+                            row.insert(row.begin() + j,
+                                       buffer[currentRow + i][j]);
+                        }
+                        yankedBuffer.push_back(row);
+                    }
+                }
+
+                if (inputChar == 'd')
+                {
+                    for (int i = 0;
+                         i < (countString.length() ? repeatCount : 1);
+                         i++)
+                    {
+                        if (buffer.size() > 1 &&
+                            currentRow < buffer.size())
+                            buffer.erase(buffer.begin() + currentRow);
+                        if (currentRow == buffer.size())
+                            currentRow--;
+                    }
+                }
+                countString = "";
+                messageText =
+                    (inputChar == 'y' ? "Yank " : "Delete ") +
+                    std::to_string(yankedBuffer.size()) + " line(s)";
+            }
+            else if (inputChar == ' ' || inputChar == 127)
+            {
+                for (int i = 0;
+                     i < (countString.length() ? repeatCount : 1);
+                     i++)
+                {
+                    if (currentRow + i < buffer.size())
+                    {
+                        if (inputChar == ' ' &&
+                            currentCol <
+                                buffer[currentRow + i].size())
+                            buffer[currentRow + i].insert(
+                                buffer[currentRow + i].begin() +
+                                    currentCol,
+                                32);
+                        else if (inputChar == 127 && currentCol &&
+                                 currentCol <
+                                     buffer[currentRow + i].size())
+                            buffer[currentRow + i].erase(
+                                buffer[currentRow + i].begin() +
+                                currentCol - 1);
+                    }
+                }
+
+                if (inputChar == ' ')
+                    currentCol++;
+                else if (currentCol)
+                    currentCol--;
+            }
+            else
+            {
+                switch (inputChar)
+                {
+                    case '#':
+                        currentCol = 0;
+                        break;
+                    case '$':
+                        currentCol = buffer[currentRow].size();
+                        break;
+                    case 'x':
+                        if (buffer[currentRow].size())
+                        {
+                            buffer[currentRow].erase(
+                                buffer[currentRow].begin() +
+                                currentCol);
+                        }
+                        break;
+                    case 'h':
+                        currentCol ? currentCol-- : currentCol;
+                        break;
+                    case 'j':
+                        currentRow < buffer.size() - 1 ? currentRow++
+                                                       : currentRow;
+                        break;
+                    case 'k':
+                        currentRow ? currentRow-- : currentRow;
+                        break;
+                    case 'l':
+                        currentCol < buffer[currentRow].size() - 1
+                            ? currentCol++
+                            : currentCol;
+                        break;
+                }
+                int currentLineLength =
+                    currentRow < buffer.size()
+                        ? buffer[currentRow].size()
+                        : 0;
+                if (currentCol > currentLineLength - 1)
+                {
+                    currentCol = currentLineLength
+                                     ? currentLineLength - 1
+                                     : currentLineLength;
+                }
+            }
+            continue;
+        }
+        else if (currentMode == Mode_Insert)
+        {
+            indentLevel = countString.length() ? repeatCount : 0;
+            if (inputChar == ENTER_KEY)
+            {
+                std::vector<int> rightSide(buffer[currentRow].size() -
+                                           currentCol);
+                std::vector<int> leftSide(currentCol);
+                copy(buffer[currentRow].begin() + currentCol,
+                     buffer[currentRow].begin() +
+                         buffer[currentRow].size(),
+                     rightSide.begin());
+                copy(buffer[currentRow].begin(),
+                     buffer[currentRow].begin() + currentCol,
+                     leftSide.begin());
+                buffer[currentRow].clear();
+
+                buffer[currentRow] = leftSide;
+                currentRow++;
+                currentCol = 0;
+
+                buffer.insert(buffer.begin() + currentRow, rightSide);
+                leftSide.clear();
+                rightSide.clear();
+
+                for (int i = 0; i < indentLevel; i++)
+                {
+                    buffer[currentRow].insert(
+                        buffer[currentRow].begin() + currentCol, 32);
+                    currentCol += 1;
+                }
+            }
+            else if (inputChar == KEY_BACKSPACE ||
+                     inputChar == '\b' || inputChar == 127)
+            {
+                if (currentCol)
+                {
+                    currentCol--;
+                    buffer[currentRow].erase(
+                        buffer[currentRow].begin() + currentCol);
+                }
+                else if (currentRow)
+                {
+                    std::vector<int> rightSide(
+                        buffer[currentRow].size() - currentCol);
+                    std::vector<int> leftSide(currentCol);
+                    copy(buffer[currentRow].begin() + currentCol,
+                         buffer[currentRow].begin() +
+                             buffer[currentRow].size(),
+                         rightSide.begin());
+                    copy(buffer[currentRow].begin(),
+                         buffer[currentRow].begin() + currentCol,
+                         leftSide.begin());
+                    buffer.erase(buffer.begin() + currentRow);
+                    currentRow--;
+                    currentCol = buffer[currentRow].size();
+                    buffer[currentRow].insert(
+                        buffer[currentRow].end(), rightSide.begin(),
+                        rightSide.end());
+                    leftSide.clear();
+                    rightSide.clear();
+                }
+            }
+            else if (inputChar == '\t')
+            {
+                buffer[currentRow].insert(
+                    buffer[currentRow].begin() + currentCol, ' ');
+                buffer[currentRow].insert(
+                    buffer[currentRow].begin() + currentCol, ' ');
+                buffer[currentRow].insert(
+                    buffer[currentRow].begin() + currentCol, ' ');
+                buffer[currentRow].insert(
+                    buffer[currentRow].begin() + currentCol, ' ');
+                currentCol = currentCol + 4;
+            }
+            else if (inputChar != (inputChar & 0x1f) &&
+                     inputChar < 128)
+            {
+                buffer[currentRow].insert(buffer[currentRow].begin() +
+                                              currentCol,
+                                          inputChar);
+                currentCol++;
+            }
+        }
+        else if (currentMode == Mode_Replace)
+        {
+            buffer[currentRow][currentCol] = inputChar;
+            currentMode = Mode_Normal;
+        }
+        else if (currentMode == Mode_ReplaceContinuous)
+        {
+            if (inputChar != (inputChar & 0x1f) && inputChar < 128 &&
+                currentCol < buffer[currentRow].size())
+            {
+                buffer[currentRow][currentCol] = inputChar;
+                currentCol++;
+            }
+            if (inputChar == KEY_RESIZE)
+            {
+                getmaxyx(stdscr, terminalRows, terminalCols);
+                terminalRows--;
+                currentRow = currentCol = 0;
+                refresh();
+            }
+        }
+        else if (currentMode == Mode_Command)
+        {
+            if (inputChar == KEY_BACKSPACE || inputChar == '\b' ||
+                inputChar == 127)
+            {
+                commandBuffer.pop_back();
+            }
+            else if (inputChar != (inputChar & 0x1f) &&
+                     inputChar < 128)
+            {
+                char newChar = inputChar;
+                commandBuffer = commandBuffer + newChar;
+            }
+            else if (inputChar == ENTER_KEY)
+            {
+                executeCommand(commandBuffer);
+                commandBuffer.clear();
+                currentMode = Mode_Normal;
+            }
         }
     }
-    else if (mod == "c")
-    {
-        if (ch == KEY_BACKSPACE || ch == '\b' || ch == 127) 
-        {
-            cmdBuffer.pop_back(); 
-        }else if (ch != (ch & 0x1f) && ch < 128)
-        {
-            char newCh = ch;
-            cmdBuffer = cmdBuffer + newCh;
-        }
-        else if (ch == '\n')
-        {
-            executeCommand(cmdBuffer);
-            cmdBuffer.clear();
-            mod = "n";
-        }
-    }
-  } 
- 
+
 exitprog:
-    endwin(); 
-    b.clear(); 
-    bf.clear(); 
-    system("clear"); 
+    endwin();
+    buffer.clear();
+    yankedBuffer.clear();
     return 0;
 }
