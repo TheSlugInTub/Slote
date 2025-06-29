@@ -43,9 +43,8 @@ std::string ExpandTilde(const std::string& path)
     {
         const char* home = nullptr;
 
-        // Try different environment variables based on platform
+        // Different environment variables based on platform
 #ifdef _WIN32
-        // Windows: try USERPROFILE first, then HOMEDRIVE+HOMEPATH
         home = getenv("USERPROFILE");
         if (!home)
         {
@@ -59,7 +58,6 @@ std::string ExpandTilde(const std::string& path)
             }
         }
 #else
-        // Unix/Linux: use HOME
         home = getenv("HOME");
 #endif
 
@@ -104,7 +102,7 @@ void DisplayStartScreen(
     int startX;
     for (int i = 0; i < startScreenContents.size(); i++)
     {
-        startX = (terminalCols - startScreenContents[i].length()) / 2;
+        startX = 1;
         mvprintw(startY + i, startX, "%s",
                  startScreenContents[i].c_str());
     }
