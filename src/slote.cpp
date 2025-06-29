@@ -25,10 +25,15 @@ struct Pane
     int                           rows, cols;
     int                           x, y;
     WINDOW*                       window;
+
+    int currentRow = 0;
+    int currentCol = 0;
+    int viewportTopRow = 0;
+    int viewportLeftCol = 0;
 };
 
-int terminalRows, terminalCols, currentRow, currentCol,
-    viewportTopRow, viewportLeftCol, command, indentLevel;
+int terminalRows, terminalCols, viewportTopRow, viewportLeftCol,
+    command, indentLevel;
 
 std::vector<Pane> panes;
 int               activePane = 0;
@@ -392,6 +397,9 @@ void DisplayPane()
         WINDOW* win = panes[i].window;
         Pane&   pane = panes[i];
 
+        int currentRow = panes[activePane].currentRow;
+        int currentCol = panes[activePane].currentCol;
+
         werase(win); // Clear window first
 
         for (int row = 0; row < pane.rows;
@@ -447,12 +455,15 @@ void DisplayPane()
             }
         }
 
-        wrefresh(win); // Critical: Refresh pane window
+        wrefresh(win);
     }
 }
 
 void DisplayStatus()
 {
+    int currentRow = panes[activePane].currentRow;
+    int currentCol = panes[activePane].currentCol;
+
     std::string modeString;
 
     switch (currentMode)
@@ -542,6 +553,9 @@ void DisplayStatus()
 
 void GetInput()
 {
+    int currentRow = panes[activePane].currentRow;
+    int currentCol = panes[activePane].currentCol;
+
     int inputChar = -1;
 
     while (inputChar == -1)
@@ -758,23 +772,33 @@ void GetInput()
                     }
                     break;
                 case 'h':
-                    currentCol ? currentCol-- : currentCol;
+                    panes[activePane].currentCol
+                        ? panes[activePane].currentCol--
+                        : panes[activePane].currentCol;
+                    currentCol = panes[activePane].currentCol;
                     break;
                 case 'j':
                     currentRow < panes[activePane].buffer.size() - 1
-                        ? currentRow++
-                        : currentRow;
+                        ? panes[activePane].currentRow++
+                        : panes[activePane].currentRow;
+                    currentRow = panes[activePane].currentRow;
                     break;
                 case 'k':
-                    currentRow ? currentRow-- : currentRow;
+                    currentRow ? panes[activePane].currentRow--
+                               : panes[activePane].currentRow;
+                    currentRow = panes[activePane].currentRow;
+                    currentCol = panes[activePane].currentCol;
                     break;
                 case 'l':
                     currentCol < panes[activePane]
                                          .buffer[currentRow]
                                          .size() -
                                      1
-                        ? currentCol++
-                        : currentCol;
+                        ? panes[activePane].currentCol++
+                        : panes[activePane].currentCol;
+                    currentRow = panes[activePane].currentRow;
+                    currentCol = panes[activePane].currentCol;
+
                     break;
             }
             int currentLineLength =
@@ -1002,21 +1026,21 @@ int main(int argc, char** argv)
     while (TRUE)
     {
         // Make sure cursor doesn't step out of bounds
-        if (currentRow < viewportTopRow)
+        if (panes[activePane].currentRow < viewportTopRow)
         {
-            viewportTopRow = currentRow;
+            viewportTopRow = panes[activePane].currentRow;
         }
-        if (currentRow >= viewportTopRow + terminalRows)
+        if (panes[activePane].currentRow >= viewportTopRow + terminalRows)
         {
-            viewportTopRow = currentRow - terminalRows + 1;
+            viewportTopRow = panes[activePane].currentRow - terminalRows + 1;
         }
-        if (currentCol < viewportLeftCol)
+        if (panes[activePane].currentCol < viewportLeftCol)
         {
-            viewportLeftCol = currentCol;
+            viewportLeftCol = panes[activePane].currentCol;
         }
-        if (currentCol >= viewportLeftCol + terminalCols)
+        if (panes[activePane].currentCol >= viewportLeftCol + terminalCols)
         {
-            viewportLeftCol = currentCol - terminalCols + 1;
+            viewportLeftCol = panes[activePane].currentCol - terminalCols + 1;
         }
 
         DisplayPane();
