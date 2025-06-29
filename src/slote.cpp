@@ -1,4 +1,3 @@
-#define PDC_WIDE
 #include <algorithm>
 #include <cstdlib> // For getenv
 #include <curses.h>
@@ -20,14 +19,27 @@ enum Mode
     Mode_ReplaceContinuous
 };
 
+struct Pane
+{
+    std::vector<std::vector<int>> buffer = {};
+    int                           rows, cols;
+    int                           x, y;
+    WINDOW*                       window;
+};
+
 int terminalRows, terminalCols, currentRow, currentCol,
     viewportTopRow, viewportLeftCol, command, indentLevel;
 
+std::vector<Pane> panes;
+int               activePane = 0;
+
+std::vector<std::vector<int>> yankedBuffer = {};
 std::string filename = "noname.txt", statusLine = "",
             messageText = "", countString = "", commandBuffer = "";
-std::vector<std::vector<int>> buffer = {}, yankedBuffer = {};
 
 Mode currentMode;
+
+WINDOW* statusWindow;
 
 const int LINE_NUMBER_WIDTH = 5; // Width reserved for line numbers
 
@@ -126,7 +138,7 @@ void DisplayStartScreen(
     }
 
     mvprintw(terminalRows - 1, (terminalCols - 26) / 2,
-             "Press any key to return...");
+             "Press any key to continue...");
     refresh();
 }
 
@@ -135,7 +147,7 @@ void ExecuteCommand(const std::string& cmd)
     if (cmd == ":q")
     {
         endwin();
-        buffer.clear();
+        panes[activePane].buffer.clear();
         yankedBuffer.clear();
         system("clear");
         exit(0);
@@ -145,11 +157,13 @@ void ExecuteCommand(const std::string& cmd)
         std::ofstream ofs(filename, std::ofstream::out);
         std::string   fileContent = "";
 
-        for (int row = 0; row < buffer.size(); row++)
+        for (int row = 0; row < panes[activePane].buffer.size();
+             row++)
         {
-            for (int col = 0; col < buffer[row].size(); col++)
+            for (int col = 0;
+                 col < panes[activePane].buffer[row].size(); col++)
             {
-                char character = buffer[row][col];
+                char character = panes[activePane].buffer[row][col];
                 if (character)
                     fileContent += character;
             }
@@ -158,15 +172,16 @@ void ExecuteCommand(const std::string& cmd)
 
         ofs << fileContent;
         ofs.close();
-        messageText = std::to_string(buffer.size()) +
-                      " line(s) written to " + "\"" + filename + "\"";
+        messageText =
+            std::to_string(panes[activePane].buffer.size()) +
+            " line(s) written to " + "\"" + filename + "\"";
     }
     else if (cmd.find(":e") == 0)
     {
         std::string rest = cmd.substr(2); // length of ":e"
         rest.erase(0, 1);
         filename = rest;
-        buffer.clear();
+        panes[activePane].buffer.clear();
         try
         {
             std::vector<int> row;
@@ -179,7 +194,7 @@ void ExecuteCommand(const std::string& cmd)
             {
                 if (fileContent[i] == '\n')
                 {
-                    buffer.push_back(row);
+                    panes[activePane].buffer.push_back(row);
                     row.clear();
                 }
                 else
@@ -190,7 +205,7 @@ void ExecuteCommand(const std::string& cmd)
 
             if (row.size())
             {
-                buffer.push_back(row);
+                panes[activePane].buffer.push_back(row);
             }
 
             ifs.close();
@@ -219,15 +234,13 @@ void InitColors()
 
     if (can_change_color() && COLORS >= 256)
     {
-        init_color(MY_GREY1, 700, 700, 700);
-        init_color(MY_GREY2, 900, 900, 900);
-        init_color(MY_GREY3, 300, 300, 300);
+        init_color(MY_GREY1, 800, 800, 800); // Dark grey
+        init_color(MY_GREY2, 900, 900, 800); // Medium grey
+        init_color(MY_GREY3, 200, 200, 200); // Light grey
 
         // Use custom colors in pairs
         init_pair(1, MY_GREY3, MY_GREY2); // White on grey
         init_pair(2, MY_GREY1, MY_GREY3); // Grey on white
-
-        bkgd(COLOR_PAIR(2));
     }
     else
     {
@@ -255,36 +268,67 @@ void InitColors()
 
 void DisplayPane()
 {
-    move(0, 0);
-
-    for (int row = 0; row < terminalRows; row++)
+    for (int i = 0; i < panes.size(); i++)
     {
-        int bufferRowIndex = row + viewportTopRow;
+        WINDOW* win = panes[i].window;
+        Pane&   pane = panes[i];
 
-        // Print line numbers
-        if (bufferRowIndex < buffer.size())
-        {
-            mvprintw(row, 0, "%*d", LINE_NUMBER_WIDTH - 1,
-                     bufferRowIndex + 1);
-        }
-        else
-        {
-            mvprintw(row, 0, "%*s", LINE_NUMBER_WIDTH - 1, "~");
-        }
+        werase(win); // Clear window first
 
-        for (int col = 0; col < terminalCols; col++)
+        for (int row = 0; row < pane.rows;
+             row++) // Use pane's own dimensions
         {
-            int bufferColIndex = col + viewportLeftCol;
-            if (bufferRowIndex < buffer.size() &&
-                bufferColIndex < buffer[bufferRowIndex].size())
+            int bufferRowIndex = row + viewportTopRow;
+
+            // Line numbers
+            wmove(win, row, 0);
+            if (bufferRowIndex < pane.buffer.size())
             {
-                mvaddch(row, col + LINE_NUMBER_WIDTH,
-                        buffer[bufferRowIndex][bufferColIndex]);
+                wprintw(win, "%*d", LINE_NUMBER_WIDTH - 1,
+                        bufferRowIndex + 1);
+            }
+            else
+            {
+                wprintw(win, "%*s", LINE_NUMBER_WIDTH - 1, "~");
+            }
+
+            // Text content
+            int textWidth = pane.cols - LINE_NUMBER_WIDTH;
+            for (int col = 0; col < textWidth; col++)
+            {
+                int bufferColIndex = col + viewportLeftCol;
+                wmove(win, row, col + LINE_NUMBER_WIDTH);
+
+                if (bufferRowIndex < pane.buffer.size() &&
+                    bufferColIndex <
+                        pane.buffer[bufferRowIndex].size())
+                {
+                    waddch(
+                        win,
+                        pane.buffer[bufferRowIndex][bufferColIndex]);
+                }
+                else
+                {
+                    waddch(win, ' '); // Clear with space
+                }
             }
         }
 
-        clrtoeol();
-        addstr(bufferRowIndex < buffer.size() - 1 ? "\n" : "\n~");
+        // Set cursor position for active pane
+        if (i == activePane)
+        {
+            int cursorRow = currentRow - viewportTopRow;
+            int cursorCol =
+                currentCol - viewportLeftCol + LINE_NUMBER_WIDTH;
+            if (cursorRow >= 0 && cursorRow < pane.rows &&
+                cursorCol >= LINE_NUMBER_WIDTH &&
+                cursorCol < pane.cols)
+            {
+                wmove(win, cursorRow, cursorCol);
+            }
+        }
+
+        wrefresh(win); // Critical: Refresh pane window
     }
 }
 
@@ -295,50 +339,43 @@ void DisplayStatus()
     switch (currentMode)
     {
         case Mode_Normal:
-        {
             modeString = "n";
             break;
-        }
         case Mode_Insert:
-        {
             modeString = "i";
             break;
-        }
         case Mode_Command:
-        {
             modeString = "c";
             break;
-        }
         case Mode_Replace:
-        {
             modeString = "r";
             break;
-        }
         case Mode_ReplaceContinuous:
-        {
             modeString = "R";
             break;
-        }
     }
 
     statusLine = modeString + " \"" + filename + "\" " +
                  std::to_string(currentRow + 1) + "/" +
-                 std::to_string(buffer.size());
+                 std::to_string(panes[activePane].buffer.size());
 
     statusLine +=
-        buffer.size()
+        panes[activePane].buffer.size()
             ? " --" +
                   std::to_string(
-                      (int)((currentRow + 1) * 100 / buffer.size())) +
+                      (int)((currentRow + 1) * 100 /
+                            panes[activePane].buffer.size())) +
                   "%-- "
             : "";
 
     statusLine += "col " + std::to_string(currentCol + 1) + " --x" +
                   (countString.length() ? countString : "0") + "--";
 
-    move(terminalRows, 0);
+    // Clear the status window first
+    werase(statusWindow);
 
-    attron(COLOR_PAIR(1));
+    // Set color attribute
+    wattron(statusWindow, COLOR_PAIR(1));
 
     std::string display_line;
 
@@ -351,8 +388,7 @@ void DisplayStatus()
         display_line = messageText;
     }
 
-    // Ensure display_line is the same length as the width of the
-    // window or the desired line length
+    // Ensure display_line fits the terminal width
     if (display_line.length() < terminalCols)
     {
         display_line +=
@@ -360,34 +396,39 @@ void DisplayStatus()
     }
     else
     {
-        display_line = display_line.substr(
-            0, terminalCols); // Truncate if it's too long
+        display_line = display_line.substr(0, terminalCols);
     }
 
-    // Display the line
-    for (int i = 0; i < display_line.length(); i++)
+    // Display the status line at row 0 of the status window
+    wmove(statusWindow, 0, 0);
+    wprintw(statusWindow, "%s", display_line.c_str());
+    
+    wattroff(statusWindow, COLOR_PAIR(1));
+
+    // Display command buffer on the second row if in command mode
+    wmove(statusWindow, 1, 0);
+    wprintw(statusWindow, "%s", commandBuffer.c_str());
+    
+    // Refresh the status window to make changes visible
+    wrefresh(statusWindow);
+
+    // Set cursor back to the main pane
+    if (currentMode != Mode_Command)
     {
-        addch(display_line[i]);
-        messageText.clear();
+        wmove(panes[activePane].window, currentRow - viewportTopRow,
+              currentCol - viewportLeftCol + LINE_NUMBER_WIDTH);
+        wrefresh(panes[activePane].window);
     }
-
-    move(terminalRows + 1, 0);
-    for (int i = 0; i < commandBuffer.length(); i++)
-        addch(commandBuffer[i]);
-
-    attroff(COLOR_PAIR(1));
-
-    clrtoeol();
-    move(currentRow - viewportTopRow,
-         currentCol - viewportLeftCol + LINE_NUMBER_WIDTH);
-    refresh();
 }
 
 void GetInput()
 {
     int inputChar = -1;
 
-    while (inputChar == -1) { inputChar = getch(); }
+    while (inputChar == -1)
+    {
+        inputChar = wgetch(panes[activePane].window);
+    }
 
     if (inputChar == ('[' & 0x1f))
     {
@@ -409,7 +450,8 @@ void GetInput()
         {
             currentMode = Mode_Insert;
 
-            if (currentCol >= buffer[currentRow].size())
+            if (currentCol >=
+                panes[activePane].buffer[currentRow].size())
                 currentCol = 0;
             curs_set(3);
             return;
@@ -418,7 +460,8 @@ void GetInput()
         {
             currentMode = Mode_Insert;
             if (currentCol <
-                buffer[currentRow]
+                panes[activePane]
+                    .buffer[currentRow]
                     .size()) // Move one letter forward if not
                              // at the end of the line
                 currentCol++;
@@ -437,7 +480,9 @@ void GetInput()
         else if (inputChar == 'o')
         {
             std::vector<int> row;
-            buffer.insert(buffer.begin() + currentRow + 1, row);
+            panes[activePane].buffer.insert(
+                panes[activePane].buffer.begin() + currentRow + 1,
+                row);
             currentRow++;
             currentCol = 0;
             currentMode = Mode_Insert;
@@ -445,14 +490,15 @@ void GetInput()
         else if (inputChar == 'O')
         {
             std::vector<int> row;
-            buffer.insert(buffer.begin() + currentRow, row);
+            panes[activePane].buffer.insert(
+                panes[activePane].buffer.begin() + currentRow, row);
             currentCol = 0;
             currentMode = Mode_Insert;
         }
         else if (inputChar == 'A')
         {
             currentMode = Mode_Insert;
-            currentCol = buffer[currentRow].size();
+            currentCol = panes[activePane].buffer[currentRow].size();
         }
         else if (inputChar == 'r')
         {
@@ -464,17 +510,20 @@ void GetInput()
         }
         else if (inputChar == 'G')
         {
-            currentRow = (repeatCount - 1 <= buffer.size() - 1
+            currentRow = (repeatCount - 1 <=
+                                  panes[activePane].buffer.size() - 1
                               ? repeatCount - 1
-                              : buffer.size() - 1);
+                              : panes[activePane].buffer.size() - 1);
             countString = "";
         }
         else if (inputChar == 'p' and yankedBuffer.size())
         {
             for (int i = 0; i < yankedBuffer.size(); i++)
             {
-                buffer.insert(buffer.begin() + currentRow + i + 1,
-                              yankedBuffer[i]);
+                panes[activePane].buffer.insert(
+                    panes[activePane].buffer.begin() + currentRow +
+                        i + 1,
+                    yankedBuffer[i]);
             }
             currentRow += yankedBuffer.size();
         }
@@ -484,15 +533,18 @@ void GetInput()
             for (int i = 0;
                  i < (countString.length() ? repeatCount : 1); i++)
             {
-                if (currentRow + i < buffer.size())
+                if (currentRow + i < panes[activePane].buffer.size())
                 {
                     std::vector<int> row;
 
-                    for (int j = 0; j < buffer[currentRow + i].size();
+                    for (int j = 0; j < panes[activePane]
+                                            .buffer[currentRow + i]
+                                            .size();
                          j++)
                     {
                         row.insert(row.begin() + j,
-                                   buffer[currentRow + i][j]);
+                                   panes[activePane]
+                                       .buffer[currentRow + i][j]);
                     }
                     yankedBuffer.push_back(row);
                 }
@@ -504,10 +556,12 @@ void GetInput()
                      i < (countString.length() ? repeatCount : 1);
                      i++)
                 {
-                    if (buffer.size() > 1 &&
-                        currentRow < buffer.size())
-                        buffer.erase(buffer.begin() + currentRow);
-                    if (currentRow == buffer.size())
+                    if (panes[activePane].buffer.size() > 1 &&
+                        currentRow < panes[activePane].buffer.size())
+                        panes[activePane].buffer.erase(
+                            panes[activePane].buffer.begin() +
+                            currentRow);
+                    if (currentRow == panes[activePane].buffer.size())
                         currentRow--;
                 }
             }
@@ -521,20 +575,29 @@ void GetInput()
             for (int i = 0;
                  i < (countString.length() ? repeatCount : 1); i++)
             {
-                if (currentRow + i < buffer.size())
+                if (currentRow + i < panes[activePane].buffer.size())
                 {
                     if (inputChar == ' ' &&
-                        currentCol < buffer[currentRow + i].size())
-                        buffer[currentRow + i].insert(
-                            buffer[currentRow + i].begin() +
-                                currentCol,
-                            32);
+                        currentCol < panes[activePane]
+                                         .buffer[currentRow + i]
+                                         .size())
+                        panes[activePane]
+                            .buffer[currentRow + i]
+                            .insert(panes[activePane]
+                                            .buffer[currentRow + i]
+                                            .begin() +
+                                        currentCol,
+                                    32);
                     else if (inputChar == 127 && currentCol &&
-                             currentCol <
-                                 buffer[currentRow + i].size())
-                        buffer[currentRow + i].erase(
-                            buffer[currentRow + i].begin() +
-                            currentCol - 1);
+                             currentCol < panes[activePane]
+                                              .buffer[currentRow + i]
+                                              .size())
+                        panes[activePane]
+                            .buffer[currentRow + i]
+                            .erase(panes[activePane]
+                                       .buffer[currentRow + i]
+                                       .begin() +
+                                   currentCol - 1);
                 }
             }
 
@@ -551,34 +614,43 @@ void GetInput()
                     currentCol = 0;
                     break;
                 case '$':
-                    currentCol = buffer[currentRow].size();
+                    currentCol =
+                        panes[activePane].buffer[currentRow].size();
                     break;
                 case 'x':
-                    if (buffer[currentRow].size())
+                    if (panes[activePane].buffer[currentRow].size())
                     {
-                        buffer[currentRow].erase(
-                            buffer[currentRow].begin() + currentCol);
+                        panes[activePane].buffer[currentRow].erase(
+                            panes[activePane]
+                                .buffer[currentRow]
+                                .begin() +
+                            currentCol);
                     }
                     break;
                 case 'h':
                     currentCol ? currentCol-- : currentCol;
                     break;
                 case 'j':
-                    currentRow < buffer.size() - 1 ? currentRow++
-                                                   : currentRow;
+                    currentRow < panes[activePane].buffer.size() - 1
+                        ? currentRow++
+                        : currentRow;
                     break;
                 case 'k':
                     currentRow ? currentRow-- : currentRow;
                     break;
                 case 'l':
-                    currentCol < buffer[currentRow].size() - 1
+                    currentCol < panes[activePane]
+                                         .buffer[currentRow]
+                                         .size() -
+                                     1
                         ? currentCol++
                         : currentCol;
                     break;
             }
-            int currentLineLength = currentRow < buffer.size()
-                                        ? buffer[currentRow].size()
-                                        : 0;
+            int currentLineLength =
+                currentRow < panes[activePane].buffer.size()
+                    ? panes[activePane].buffer[currentRow].size()
+                    : 0;
             if (currentCol > currentLineLength - 1)
             {
                 currentCol = currentLineLength ? currentLineLength - 1
@@ -592,30 +664,37 @@ void GetInput()
         indentLevel = countString.length() ? repeatCount : 0;
         if (inputChar == ENTER_KEY)
         {
-            std::vector<int> rightSide(buffer[currentRow].size() -
-                                       currentCol);
+            std::vector<int> rightSide(
+                panes[activePane].buffer[currentRow].size() -
+                currentCol);
             std::vector<int> leftSide(currentCol);
-            copy(buffer[currentRow].begin() + currentCol,
-                 buffer[currentRow].begin() +
-                     buffer[currentRow].size(),
+            copy(panes[activePane].buffer[currentRow].begin() +
+                     currentCol,
+                 panes[activePane].buffer[currentRow].begin() +
+                     panes[activePane].buffer[currentRow].size(),
                  rightSide.begin());
-            copy(buffer[currentRow].begin(),
-                 buffer[currentRow].begin() + currentCol,
+            copy(panes[activePane].buffer[currentRow].begin(),
+                 panes[activePane].buffer[currentRow].begin() +
+                     currentCol,
                  leftSide.begin());
-            buffer[currentRow].clear();
+            panes[activePane].buffer[currentRow].clear();
 
-            buffer[currentRow] = leftSide;
+            panes[activePane].buffer[currentRow] = leftSide;
             currentRow++;
             currentCol = 0;
 
-            buffer.insert(buffer.begin() + currentRow, rightSide);
+            panes[activePane].buffer.insert(
+                panes[activePane].buffer.begin() + currentRow,
+                rightSide);
             leftSide.clear();
             rightSide.clear();
 
             for (int i = 0; i < indentLevel; i++)
             {
-                buffer[currentRow].insert(
-                    buffer[currentRow].begin() + currentCol, 32);
+                panes[activePane].buffer[currentRow].insert(
+                    panes[activePane].buffer[currentRow].begin() +
+                        currentCol,
+                    32);
                 currentCol += 1;
             }
         }
@@ -625,61 +704,78 @@ void GetInput()
             if (currentCol)
             {
                 currentCol--;
-                buffer[currentRow].erase(buffer[currentRow].begin() +
-                                         currentCol);
+                panes[activePane].buffer[currentRow].erase(
+                    panes[activePane].buffer[currentRow].begin() +
+                    currentCol);
             }
             else if (currentRow)
             {
-                std::vector<int> rightSide(buffer[currentRow].size() -
-                                           currentCol);
+                std::vector<int> rightSide(
+                    panes[activePane].buffer[currentRow].size() -
+                    currentCol);
                 std::vector<int> leftSide(currentCol);
-                copy(buffer[currentRow].begin() + currentCol,
-                     buffer[currentRow].begin() +
-                         buffer[currentRow].size(),
+                copy(panes[activePane].buffer[currentRow].begin() +
+                         currentCol,
+                     panes[activePane].buffer[currentRow].begin() +
+                         panes[activePane].buffer[currentRow].size(),
                      rightSide.begin());
-                copy(buffer[currentRow].begin(),
-                     buffer[currentRow].begin() + currentCol,
+                copy(panes[activePane].buffer[currentRow].begin(),
+                     panes[activePane].buffer[currentRow].begin() +
+                         currentCol,
                      leftSide.begin());
-                buffer.erase(buffer.begin() + currentRow);
+                panes[activePane].buffer.erase(
+                    panes[activePane].buffer.begin() + currentRow);
                 currentRow--;
-                currentCol = buffer[currentRow].size();
-                buffer[currentRow].insert(buffer[currentRow].end(),
-                                          rightSide.begin(),
-                                          rightSide.end());
+                currentCol =
+                    panes[activePane].buffer[currentRow].size();
+                panes[activePane].buffer[currentRow].insert(
+                    panes[activePane].buffer[currentRow].end(),
+                    rightSide.begin(), rightSide.end());
                 leftSide.clear();
                 rightSide.clear();
             }
         }
         else if (inputChar == '\t')
         {
-            buffer[currentRow].insert(
-                buffer[currentRow].begin() + currentCol, ' ');
-            buffer[currentRow].insert(
-                buffer[currentRow].begin() + currentCol, ' ');
-            buffer[currentRow].insert(
-                buffer[currentRow].begin() + currentCol, ' ');
-            buffer[currentRow].insert(
-                buffer[currentRow].begin() + currentCol, ' ');
+            panes[activePane].buffer[currentRow].insert(
+                panes[activePane].buffer[currentRow].begin() +
+                    currentCol,
+                ' ');
+            panes[activePane].buffer[currentRow].insert(
+                panes[activePane].buffer[currentRow].begin() +
+                    currentCol,
+                ' ');
+            panes[activePane].buffer[currentRow].insert(
+                panes[activePane].buffer[currentRow].begin() +
+                    currentCol,
+                ' ');
+            panes[activePane].buffer[currentRow].insert(
+                panes[activePane].buffer[currentRow].begin() +
+                    currentCol,
+                ' ');
             currentCol = currentCol + 4;
         }
         else if (inputChar != (inputChar & 0x1f) && inputChar < 128)
         {
-            buffer[currentRow].insert(
-                buffer[currentRow].begin() + currentCol, inputChar);
+            panes[activePane].buffer[currentRow].insert(
+                panes[activePane].buffer[currentRow].begin() +
+                    currentCol,
+                inputChar);
             currentCol++;
         }
     }
     else if (currentMode == Mode_Replace)
     {
-        buffer[currentRow][currentCol] = inputChar;
+        panes[activePane].buffer[currentRow][currentCol] = inputChar;
         currentMode = Mode_Normal;
     }
     else if (currentMode == Mode_ReplaceContinuous)
     {
         if (inputChar != (inputChar & 0x1f) && inputChar < 128 &&
-            currentCol < buffer[currentRow].size())
+            currentCol < panes[activePane].buffer[currentRow].size())
         {
-            buffer[currentRow][currentCol] = inputChar;
+            panes[activePane].buffer[currentRow][currentCol] =
+                inputChar;
             currentCol++;
         }
         if (inputChar == KEY_RESIZE)
@@ -742,8 +838,20 @@ int main(int argc, char** argv)
     DisplayStartScreen(startScreenContents);
 
     while (startScreenChar == -1) { startScreenChar = getch(); }
-
     clear();
+
+    statusWindow = newwin(2, terminalCols, terminalRows, 0);
+    refresh();
+    wbkgd(statusWindow, COLOR_PAIR(2));
+
+    panes.push_back({});
+    panes[0].window = newwin(terminalRows, terminalCols, 0, 0);
+    refresh();
+    panes[0].x = 0;
+    panes[0].y = 0;
+    panes[0].rows = terminalRows;
+    panes[0].cols = terminalCols;
+    wbkgd(panes[0].window, COLOR_PAIR(2));
 
     if (argc == 2)
     {
@@ -751,12 +859,13 @@ int main(int argc, char** argv)
     }
     else
     {
-        buffer.push_back({});
+        panes[activePane].buffer.push_back({});
     }
 
-    if (filename != "noname.txt" && buffer.size() == 0)
+    if (filename != "noname.txt" &&
+        panes[activePane].buffer.size() == 0)
     {
-        buffer.push_back({});
+        panes[activePane].buffer.push_back({});
     }
 
     // Main loop of program
@@ -783,10 +892,12 @@ int main(int argc, char** argv)
         DisplayPane();
         DisplayStatus();
         GetInput();
+
+        continue;
     }
 
     endwin();
-    buffer.clear();
+    panes[activePane].buffer.clear();
     yankedBuffer.clear();
     return 0;
 }
