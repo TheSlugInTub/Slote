@@ -6,6 +6,8 @@
 #include <locale.h>
 #include <string>
 #include <vector>
+#include <codecvt>
+#include <locale>
 
 #define ctrl(x) (x & 0x01F)
 
@@ -80,7 +82,7 @@ std::vector<std::string> ReadStartScreen(const std::string& fileName)
     if (file.is_open())
     {
         std::string line;
-        while (getline(file, line))
+        while (std::getline(file, line))
         {
             startScreenContents.push_back(line);
         }
@@ -94,15 +96,31 @@ std::vector<std::string> ReadStartScreen(const std::string& fileName)
     return startScreenContents;
 }
 
+std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+
 void DisplayStartScreen(
     const std::vector<std::string>& startScreenContents)
 {
     clear();
     int startY = (terminalRows - startScreenContents.size()) / 2;
-    int startX;
+    int stringLen = 0; // Longest string in startScreenContents
+
     for (int i = 0; i < startScreenContents.size(); i++)
     {
-        startX = 1;
+        std::wstring wideLine =
+            converter.from_bytes(startScreenContents[i]);
+        int len = wideLine.length();
+
+        if (len >= stringLen)
+        {
+            stringLen = len;
+        }
+    }
+
+    int startX = (terminalCols / 2) - (stringLen / 2);
+
+    for (int i = 0; i < startScreenContents.size(); i++)
+    {
         mvprintw(startY + i, startX, "%s",
                  startScreenContents[i].c_str());
     }
@@ -273,37 +291,6 @@ int main(int argc, char** argv)
     else
     {
         buffer.push_back(row);
-    }
-
-    try
-    {
-        std::vector<int> row;
-
-        std::ifstream ifs(filename);
-        std::string fileContent((std::istreambuf_iterator<char>(ifs)),
-                                (std::istreambuf_iterator<char>()));
-        for (int i = 0; i < fileContent.size(); i++)
-        {
-            if (fileContent[i] == '\n')
-            {
-                buffer.push_back(row);
-                row.clear();
-            }
-            else
-            {
-                row.push_back(fileContent[i]);
-            }
-        }
-
-        if (row.size())
-        {
-            buffer.push_back(row);
-        }
-
-        ifs.close();
-    }
-    catch (std::exception& e)
-    {
     }
 
     if (filename != "noname.txt" && buffer.size() == 0)
