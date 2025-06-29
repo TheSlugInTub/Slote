@@ -1,3 +1,4 @@
+#define PDC_WIDE
 #include <algorithm>
 #include <cstdlib> // For getenv
 #include <curses.h>
@@ -30,13 +31,38 @@ const int LINE_NUMBER_WIDTH = 5; // Width reserved for line numbers
 
 std::ofstream debugFile;
 
-#define ENTER_KEY 13
+#ifdef _WIN32
+#    define ENTER_KEY 13
+#else
+#    define ENTER_KEY '\n'
+#endif
 
 std::string ExpandTilde(const std::string& path)
 {
     if (!path.empty() && path[0] == '~')
     {
-        const char* home = getenv("HOME");
+        const char* home = nullptr;
+
+        // Try different environment variables based on platform
+#ifdef _WIN32
+        // Windows: try USERPROFILE first, then HOMEDRIVE+HOMEPATH
+        home = getenv("USERPROFILE");
+        if (!home)
+        {
+            const char* homeDrive = getenv("HOMEDRIVE");
+            const char* homePath = getenv("HOMEPATH");
+            if (homeDrive && homePath)
+            {
+                static std::string windowsHome =
+                    std::string(homeDrive) + std::string(homePath);
+                home = windowsHome.c_str();
+            }
+        }
+#else
+        // Unix/Linux: use HOME
+        home = getenv("HOME");
+#endif
+
         if (home)
         {
             return std::string(home) +
@@ -88,7 +114,7 @@ void DisplayStartScreen(
     refresh();
 }
 
-void executeCommand(const std::string& cmd)
+void ExecuteCommand(const std::string& cmd)
 {
     if (cmd == ":q")
     {
@@ -163,6 +189,54 @@ void executeCommand(const std::string& cmd)
     }
 }
 
+void InitColors()
+{
+    start_color();
+
+    // Check if terminal supports color changes
+    bool canChangeColors = can_change_color();
+
+    // Use custom color indices above standard 8-color range
+    const int MY_GREY1 = 100;
+    const int MY_GREY2 = 101;
+    const int MY_GREY3 = 102;
+
+    if (can_change_color() && COLORS >= 256)
+    {
+        init_color(MY_GREY1, 400, 400, 400); // Dark grey
+        init_color(MY_GREY2, 300, 300, 300); // Medium grey
+        init_color(MY_GREY3, 900, 900, 900); // Light grey
+
+        // Use custom colors in pairs
+        init_pair(1, MY_GREY3, MY_GREY2); // White on grey
+        init_pair(2, MY_GREY1, MY_GREY3); // Grey on white
+
+        bkgd(COLOR_PAIR(2));
+    }
+    else
+    {
+        // Fallback for terminals that don't support color
+        // redefinition Use standard colors that look good on most
+        // terminals
+        if (COLORS >= 8)
+        {
+            init_pair(1, COLOR_WHITE, COLOR_BLUE);  // Status bar
+            init_pair(2, COLOR_WHITE, COLOR_BLACK); // Normal text
+            init_pair(3, COLOR_BLACK,
+                      COLOR_WHITE); // Alternative scheme
+
+            // Use a neutral color scheme
+            bkgd(COLOR_PAIR(2));
+        }
+        else
+        {
+            // Monochrome fallback
+            init_pair(1, COLOR_WHITE, COLOR_BLACK);
+            bkgd(COLOR_PAIR(1));
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     debugFile.open("debug.txt");
@@ -171,7 +245,6 @@ int main(int argc, char** argv)
               ""); // Set the locale to the default environment locale
     setlocale(LC_CTYPE, ""); // Set locale for UTF-8 support
     initscr();
-    start_color();
     nodelay(stdscr, TRUE);
     noecho();
     raw();
@@ -180,21 +253,13 @@ int main(int argc, char** argv)
     terminalRows = terminalRows - 2;
     std::vector<int> row;
 
-    std::string              startFile = "~/.config/slote/start.txt";
+    std::string              startFile = "~/slotestart.txt";
     std::vector<std::string> startScreenContents =
         ReadStartScreen(startFile);
 
     int startScreenChar = -1;
 
-    init_color(COLOR_BLUE, 80, 80, 80);
-    init_color(COLOR_RED, 118, 118,
-               117); // Index COLOR_RED is being redefined
-    init_pair(5, COLOR_WHITE,
-              COLOR_RED); // Use custom color as background
-    init_pair(1, COLOR_WHITE,
-              COLOR_BLUE); // example: white text on blue background
-
-    bkgd(COLOR_PAIR(5)); // Set background color for the whole window
+    InitColors();
     clear();
 
     DisplayStartScreen(startScreenContents);
@@ -722,7 +787,7 @@ int main(int argc, char** argv)
             }
             else if (inputChar == ENTER_KEY)
             {
-                executeCommand(commandBuffer);
+                ExecuteCommand(commandBuffer);
                 commandBuffer.clear();
                 currentMode = Mode_Normal;
             }

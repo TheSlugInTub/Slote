@@ -93,11 +93,6 @@ else()
         set(CURSES_INCLUDE_DIRS ${NCURSESW_INCLUDE_DIRS})
         set(CURSES_LIBRARIES ${NCURSESW_LIBRARIES})
         message(STATUS "Found ncursesw (wide character support)")
-    elif(NCURSES_FOUND)
-        set(CURSES_FOUND TRUE)
-        set(CURSES_INCLUDE_DIRS ${NCURSES_INCLUDE_DIRS})
-        set(CURSES_LIBRARIES ${NCURSES_LIBRARIES})
-        message(STATUS "Found ncurses (basic support)")
     else()
         # Fallback to FindCurses module
         find_package(Curses REQUIRED)
@@ -123,7 +118,7 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE ${CURSES_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     ${CURSES_LIBRARIES}
-    ntdll.lib)
+    )
 
 # Add compile definitions for better Unicode support
 if(WIN32)
