@@ -142,15 +142,121 @@ void DisplayStartScreen(
     refresh();
 }
 
+void MakeVerticalSplit()
+{
+    panes.push_back({});
+    int newIndex = panes.size() - 1;
+
+    // Calculate dimensions for vertical split
+    int halfWidth = panes[activePane].cols / 2;
+
+    // Resize current pane to left half
+    wresize(panes[activePane].window, panes[activePane].rows,
+            halfWidth);
+    panes[activePane].cols = halfWidth;
+
+    // Create new pane for right half
+    panes[newIndex].x =
+        panes[activePane].x + halfWidth;     // Position to the right
+    panes[newIndex].y = panes[activePane].y; // Same vertical position
+    panes[newIndex].rows = panes[activePane].rows; // Same height
+    panes[newIndex].cols =
+        panes[activePane].cols; // Same width as resized left pane
+
+    // Create window with correct parameters: (height, width, start_y,
+    // start_x)
+    panes[newIndex].window =
+        newwin(panes[newIndex].rows, panes[newIndex].cols,
+               panes[newIndex].y, panes[newIndex].x);
+
+    if (panes[newIndex].window == NULL)
+    {
+        // Handle error - remove the pane we just added
+        panes.pop_back();
+        return;
+    }
+
+    wbkgd(panes[newIndex].window, COLOR_PAIR(2));
+
+    // Initialize buffer for new pane
+    panes[newIndex].buffer.push_back({});
+
+    // Switch to new pane
+    activePane = newIndex;
+
+    // Enable keypad for the new window
+    keypad(panes[newIndex].window, TRUE);
+
+    refresh();
+}
+
+void MakeHorizontalSplit()
+{
+    panes.push_back({});
+    int newIndex = panes.size() - 1;
+
+    // Calculate dimensions for horizontal split
+    int halfHeight = panes[activePane].rows / 2;
+
+    // Resize current pane to top half
+    wresize(panes[activePane].window, halfHeight,
+            panes[activePane].cols);
+    panes[activePane].rows = halfHeight;
+
+    // Create new pane for bottom half
+    panes[newIndex].x =
+        panes[activePane].x; // Same horizontal position
+    panes[newIndex].y =
+        panes[activePane].y + halfHeight; // Position below
+    panes[newIndex].rows =
+        panes[activePane].rows; // Same height as resized top pane
+    panes[newIndex].cols = panes[activePane].cols; // Same width
+
+    // Create window with correct parameters: (height, width, start_y,
+    // start_x)
+    panes[newIndex].window =
+        newwin(panes[newIndex].rows, panes[newIndex].cols,
+               panes[newIndex].y, panes[newIndex].x);
+
+    if (panes[newIndex].window == NULL)
+    {
+        // Handle error - remove the pane we just added
+        panes.pop_back();
+        return;
+    }
+
+    wbkgd(panes[newIndex].window, COLOR_PAIR(2));
+
+    // Initialize buffer for new pane
+    panes[newIndex].buffer.push_back({});
+
+    // Switch to new pane
+    activePane = newIndex;
+
+    // Enable keypad for the new window
+    keypad(panes[newIndex].window, TRUE);
+
+    refresh();
+}
+
 void ExecuteCommand(const std::string& cmd)
 {
     if (cmd == ":q")
     {
-        endwin();
-        panes[activePane].buffer.clear();
-        yankedBuffer.clear();
-        system("clear");
-        exit(0);
+        if (panes.size() == 1)
+        {
+            endwin();
+            panes[activePane].buffer.clear();
+            yankedBuffer.clear();
+            system("clear");
+            exit(0);
+        }
+        else
+        {
+            panes.erase(panes.begin() + activePane);
+            delwin(panes[activePane].window);
+            activePane = 0;
+        }
     }
     else if (cmd == ":w")
     {
@@ -184,7 +290,7 @@ void ExecuteCommand(const std::string& cmd)
         panes[activePane].buffer.clear();
         try
         {
-            std::vector<int> row;
+            std::vector<int> row {};
 
             std::ifstream ifs(filename);
             std::string   fileContent(
@@ -203,6 +309,11 @@ void ExecuteCommand(const std::string& cmd)
                 }
             }
 
+            if (fileContent.size() == 0)
+            {
+                panes[activePane].buffer.push_back({});
+            }
+
             if (row.size())
             {
                 panes[activePane].buffer.push_back(row);
@@ -213,6 +324,14 @@ void ExecuteCommand(const std::string& cmd)
         catch (std::exception& e)
         {
         }
+    }
+    else if (cmd == ":vsp")
+    {
+        MakeVerticalSplit();
+    }
+    else if (cmd == ":sp")
+    {
+        MakeHorizontalSplit();
     }
     else
     {
@@ -402,13 +521,13 @@ void DisplayStatus()
     // Display the status line at row 0 of the status window
     wmove(statusWindow, 0, 0);
     wprintw(statusWindow, "%s", display_line.c_str());
-    
+
     wattroff(statusWindow, COLOR_PAIR(1));
 
     // Display command buffer on the second row if in command mode
     wmove(statusWindow, 1, 0);
     wprintw(statusWindow, "%s", commandBuffer.c_str());
-    
+
     // Refresh the status window to make changes visible
     wrefresh(statusWindow);
 
@@ -471,6 +590,17 @@ void GetInput()
         else if (inputChar == ctrl('c'))
         {
             messageText = "Type ':q' to exit Slote.";
+        }
+        else if (inputChar == ctrl('w'))
+        {
+            if (activePane < panes.size() - 1)
+            {
+                activePane++;
+            }
+            else
+            {
+                activePane = 0;
+            }
         }
         else if (inputChar == ':')
         {
