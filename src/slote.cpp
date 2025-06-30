@@ -10,6 +10,8 @@
 
 std::ofstream debugFile;
 
+bool isStartScreen = true;
+
 #ifdef _WIN32
 #    include <windows.h>
 
@@ -85,7 +87,10 @@ std::string statusLine = "";         // Status text
 std::string messageText =
     ""; // Message which will display on status line if message isn't
         // null, goes away once you enter insert mode
-std::string countString = "";
+std::string countString =
+    ""; // If you type in a number in normal mode, it will get
+        // appended to this string. If you then move the cursor, it
+        // will move it this amount and reset the string
 std::string commandBuffer = ""; // Command text at bottom of screen
 
 Mode currentMode;
@@ -285,43 +290,40 @@ std::vector<std::string> ReadStartScreen(const std::string& fileName)
 
 std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
 
-// Display the start screen
 void DisplayStartScreen(
     const std::vector<std::string>& startScreenContents)
 {
-    // Clear screen first
-    clear();
-    // Calculate starting Y position of start text
-    int startY = (terminalRows - startScreenContents.size()) / 2;
-    int stringLen = 0; // Longest string in startScreenContents
+    // Calculate window size based on content
+    int height = startScreenContents.size();
+    int width = 0;
 
-    for (int i = 0; i < startScreenContents.size(); i++)
+    for (const auto& line : startScreenContents)
     {
-        // Convert string to wstring to properly count unicode
-        // characters
-        std::wstring wideLine =
-            converter.from_bytes(startScreenContents[i]);
-        int len = wideLine.length();
-
-        if (len >= stringLen)
+        // Convert to wide string to properly count unicode characters
+        std::wstring wideLine = converter.from_bytes(line);
+        int          len = wideLine.length();
+        if (len > width)
         {
-            stringLen = len;
+            width = len;
         }
     }
 
-    // Calculate starting X position of start text
-    int startX = (terminalCols / 2) - (stringLen / 2);
+    // Create window at center
+    int     startY = (terminalRows - height) / 2;
+    int     startX = (terminalCols - width) / 2;
+    WINDOW* startWin = newwin(height, width, startY, startX);
 
-    // Go through each line and print it
+    // Set background color
+    wbkgd(startWin, COLOR_PAIR(2));
+
+    // Print each line
     for (int i = 0; i < startScreenContents.size(); i++)
     {
-        mvprintw(startY + i, startX, "%s",
-                 startScreenContents[i].c_str());
+        mvwprintw(startWin, i, 0, "%s",
+                  startScreenContents[i].c_str());
     }
 
-    mvprintw(terminalRows - 1, (terminalCols - 26) / 2,
-             "Press any key to continue...");
-    refresh();
+    wrefresh(startWin);
 }
 
 void MakeVerticalSplit()
@@ -755,6 +757,8 @@ void GetInput()
         inputChar = wgetch(panes[activePane].window);
     }
 
+    isStartScreen = false;
+
     // Switch to normal mode if escape key is pressed
     if (inputChar == ('[' & 0x1f)) // ESCAPE key
     {
@@ -1007,6 +1011,8 @@ void GetInput()
                     countString = "";
                     break;
                 case 'j':
+                    // Make sure the repeat count doesn't get the
+                    // cursor out of bounds
                     if (repeatCount >
                         (panes[activePane].buffer.size() -
                          currentRow) -
@@ -1023,10 +1029,11 @@ void GetInput()
                     countString = "";
                     break;
                 case 'k':
+                    // Make sure the repeat count doesn't get the
+                    // cursor out of bounds
                     if (repeatCount > currentRow - 1)
                     {
-                        repeatCount =
-                            currentRow - 1;
+                        repeatCount = currentRow - 1;
                     }
 
                     currentRow ? currentRow -= (1 + repeatCount)
@@ -1224,15 +1231,7 @@ int main(int argc, char** argv)
     std::vector<std::string> startScreenContents =
         ReadStartScreen(startFile);
 
-    int startScreenChar = -1;
-
     InitColors();
-
-    DisplayStartScreen(startScreenContents);
-
-    // Wait for input to remove start screen
-    while (startScreenChar == -1) { startScreenChar = getch(); }
-    clear();
 
     // Make status window
     statusWindow = newwin(2, terminalCols, terminalRows, 0);
@@ -1254,6 +1253,7 @@ int main(int argc, char** argv)
     if (argc == 2)
     {
         filename = argv[1];
+        isStartScreen = false;
         ReadFile(filename.c_str());
     }
     // If we have an empty file, add a line to the buffer to not get
@@ -1296,6 +1296,12 @@ int main(int argc, char** argv)
 
         DisplayPane();
         DisplayStatus();
+
+        if (isStartScreen)
+        {
+            DisplayStartScreen(startScreenContents);
+        }
+
         GetInput();
 
         continue;
