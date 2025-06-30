@@ -1,13 +1,6 @@
-sdasd
-asd
-asdas
-das
-da
-sda
-sda
-sd
-asd
-asd
+#include <iostream>
 
-asd
-
+int main()
+{
+    
+}

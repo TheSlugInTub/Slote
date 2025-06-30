@@ -776,6 +776,8 @@ void GetInput()
 #endif
 
     int repeatCount = atoi(countString.c_str());
+    if (repeatCount != 0)
+        repeatCount--;
 
     if (currentMode == Mode_Normal)
     {
@@ -972,8 +974,14 @@ void GetInput()
             else if (currentCol)
                 currentCol--;
         }
+        else if (isdigit(inputChar))
+        {
+            countString.append(1, inputChar);
+        }
         else
         {
+            int bufferRowIndex = currentRow + viewportTopRow;
+
             switch (inputChar)
             {
                 case '#':
@@ -994,24 +1002,45 @@ void GetInput()
                     }
                     break;
                 case 'h':
-                    currentCol ? currentCol-- : currentCol;
+                    currentCol ? currentCol -= (1 + repeatCount)
+                               : currentCol;
+                    countString = "";
                     break;
                 case 'j':
+                    if (repeatCount >
+                        (panes[activePane].buffer.size() -
+                         currentRow) -
+                            2)
+                    {
+                        repeatCount =
+                            panes[activePane].buffer.size() -
+                            currentRow - 2;
+                    }
+
                     currentRow < panes[activePane].buffer.size() - 1
-                        ? currentRow++
+                        ? currentRow += (1 + repeatCount)
                         : currentRow;
+                    countString = "";
                     break;
                 case 'k':
-                    currentRow ? currentRow-- : currentRow;
+                    if (repeatCount > currentRow - 1)
+                    {
+                        repeatCount =
+                            currentRow - 1;
+                    }
+
+                    currentRow ? currentRow -= (1 + repeatCount)
+                               : currentRow;
+                    countString = "";
                     break;
                 case 'l':
                     currentCol < panes[activePane]
                                          .buffer[currentRow]
                                          .size() -
                                      1
-                        ? currentCol++
+                        ? currentCol += (1 + repeatCount)
                         : currentCol;
-
+                    countString = "";
                     break;
             }
             int currentLineLength =
@@ -1028,7 +1057,6 @@ void GetInput()
     }
     else if (currentMode == Mode_Insert)
     {
-        indentLevel = countString.length() ? repeatCount : 0;
         if (inputChar == ENTER_KEY)
         {
             std::vector<int> rightSide(
@@ -1055,15 +1083,6 @@ void GetInput()
                 rightSide);
             leftSide.clear();
             rightSide.clear();
-
-            for (int i = 0; i < indentLevel; i++)
-            {
-                panes[activePane].buffer[currentRow].insert(
-                    panes[activePane].buffer[currentRow].begin() +
-                        currentCol,
-                    32);
-                currentCol += 1;
-            }
         }
         else if (inputChar == KEY_BACKSPACE || inputChar == '\b' ||
                  inputChar == 127)
