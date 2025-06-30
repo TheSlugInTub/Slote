@@ -8,6 +8,41 @@
 #include <codecvt>
 #include <locale>
 
+std::ofstream debugFile;
+
+#ifdef _WIN32
+#    include <windows.h>
+
+HANDLE hConOut = NULL;
+
+HANDLE GetConsoleOutputHandle(void)
+{
+    SECURITY_ATTRIBUTES sa;
+
+    if (!hConOut)
+    {
+        /* First call -- get the window handle one time and save it*/
+        sa.nLength = sizeof(sa);
+        sa.lpSecurityDescriptor = NULL;
+        sa.bInheritHandle = TRUE;
+        /* Using CreateFile we get the true console handle", avoiding
+         * any redirection.*/
+        hConOut =
+            CreateFile(TEXT("CONOUT$"), GENERIC_READ | GENERIC_WRITE,
+                       FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                       OPEN_EXISTING, (DWORD)0, (HANDLE)0);
+    }
+    if (!hConOut)
+    {
+        printf("getConsoleOutputHandle(): failed to get Console "
+               "Window Handle\n");
+        return NULL;
+    }
+    return hConOut;
+}
+
+#endif
+
 #define ctrl(x) (x & 0x01F)
 
 enum Mode
@@ -21,26 +56,37 @@ enum Mode
 
 struct Pane
 {
-    std::vector<std::vector<int>> buffer = {};
-    int                           rows, cols;
-    int                           x, y;
-    WINDOW*                       window;
+    std::vector<std::vector<int>> buffer =
+        {};             // Buffer of text which you will edit
+    int     rows, cols; // Height and width
+    int     x, y;       // Top-right anchor position
+    WINDOW* window;     // Ncurses window
 
-    int currentRow = 0;
-    int currentCol = 0;
+    int currentRow = 0; // Cursor pos
+    int currentCol = 0; // Cursor pos
     int viewportTopRow = 0;
     int viewportLeftCol = 0;
 };
 
-int terminalRows, terminalCols, viewportTopRow, viewportLeftCol,
-    command, indentLevel;
+int terminalRows;
+int terminalCols;
+int viewportTopRow;
+int viewportLeftCol;
+int command;
+int indentLevel;
 
 std::vector<Pane> panes;
 int               activePane = 0;
 
 std::vector<std::vector<int>> yankedBuffer = {};
-std::string filename = "noname.txt", statusLine = "",
-            messageText = "", countString = "", commandBuffer = "";
+
+std::string filename = "noname.txt"; // Current file
+std::string statusLine = "";         // Status text
+std::string messageText =
+    ""; // Message which will display on status line if message isn't
+        // null, goes away once you enter insert mode
+std::string countString = "";
+std::string commandBuffer = ""; // Command text at bottom of screen
 
 Mode currentMode;
 
@@ -48,14 +94,134 @@ WINDOW* statusWindow;
 
 const int LINE_NUMBER_WIDTH = 5; // Width reserved for line numbers
 
-std::ofstream debugFile;
-
 #ifdef _WIN32
 #    define ENTER_KEY 13
+
+short old_screen_w = 0, old_screen_h = 0;
+
+bool CheckResizeWindows(int* x, int* y)
+{
+    short                      current_screen_w, current_screen_h;
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+
+    if (!hConOut)
+    {
+        return FALSE;
+    }
+
+    if (!GetConsoleScreenBufferInfo(hConOut, &csbi))
+    {
+        return FALSE;
+    }
+
+    // Get the actual visible window size
+    current_screen_w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    current_screen_h = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+
+    // Initialize on first call
+    if (!old_screen_w && !old_screen_h)
+    {
+        old_screen_w = current_screen_w;
+        old_screen_h = current_screen_h;
+        return FALSE;
+    }
+
+    // Check if size changed
+    if (current_screen_w != old_screen_w ||
+        current_screen_h != old_screen_h)
+    {
+        old_screen_w = current_screen_w;
+        old_screen_h = current_screen_h;
+        *x = current_screen_w;
+        *y = current_screen_h;
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
 #else
 #    define ENTER_KEY '\n'
 #endif
 
+// If window is resized, this function will adjust the program
+void HandleWindowsResize(int newCols, int newRows)
+{
+    // Let ncurses know about new width and height
+    resize_term(newRows, newCols);
+
+    // Update global terminal size
+    terminalRows = newRows - 2; // Reserve space for status
+    terminalCols = newCols;
+
+    // Clear and refresh the main screen
+    clear();
+    refresh();
+
+    // Resize and move status window
+    wresize(statusWindow, 2, terminalCols);
+    mvwin(statusWindow, terminalRows, 0);
+    werase(statusWindow);
+    wrefresh(statusWindow);
+
+    // Recalculate pane sizes (simple case: single pane takes full
+    // space)
+    if (panes.size() == 1)
+    {
+        wresize(panes[0].window, terminalRows, terminalCols);
+        mvwin(panes[0].window, 0, 0);
+        panes[0].rows = terminalRows;
+        panes[0].cols = terminalCols;
+        panes[0].x = 0;
+        panes[0].y = 0;
+    }
+    else
+    {
+        // This approach is hacky, and deletes all other panes
+        // TODO: Fix this
+        for (int i = 1; i < panes.size(); i++)
+        {
+            delwin(panes[i].window);
+        }
+        panes.resize(1);
+        activePane = 0;
+
+        wresize(panes[0].window, terminalRows, terminalCols);
+        mvwin(panes[0].window, 0, 0);
+        panes[0].rows = terminalRows;
+        panes[0].cols = terminalCols;
+        panes[0].x = 0;
+        panes[0].y = 0;
+    }
+
+    // Ensure cursor position is still valid
+    if (panes[activePane].currentRow >= terminalRows)
+    {
+        viewportTopRow =
+            panes[activePane].currentRow - terminalRows + 1;
+    }
+    if (panes[activePane].currentCol >=
+        terminalCols - LINE_NUMBER_WIDTH)
+    {
+        viewportLeftCol = panes[activePane].currentCol -
+                          (terminalCols - LINE_NUMBER_WIDTH) + 1;
+    }
+
+    // Refresh all windows
+    for (auto& pane : panes)
+    {
+        werase(pane.window);
+        wrefresh(pane.window);
+    }
+
+    // Force a complete redraw
+    clearok(stdscr, TRUE);
+    refresh();
+}
+
+// Expand tilde in filepath to the user directory on windows and home
+// on UNIX
 std::string ExpandTilde(const std::string& path)
 {
     if (!path.empty() && path[0] == '~')
@@ -77,6 +243,7 @@ std::string ExpandTilde(const std::string& path)
             }
         }
 #else
+        // It's so much simpler on UNIX
         home = getenv("HOME");
 #endif
 
@@ -89,12 +256,15 @@ std::string ExpandTilde(const std::string& path)
     return path;
 }
 
+// Read a file and return its content in a vector of strings
 std::vector<std::string> ReadStartScreen(const std::string& fileName)
 {
     std::vector<std::string> startScreenContents;
-    std::string              expandedFileName =
-        ExpandTilde(fileName); // Expand the tilde
+    std::string              expandedFileName = ExpandTilde(
+        fileName); // Expand the tilde into the home directory
+                                // on either operating systems
 
+    // Open file and read its contents
     std::ifstream file(expandedFileName);
     if (file.is_open())
     {
@@ -115,15 +285,20 @@ std::vector<std::string> ReadStartScreen(const std::string& fileName)
 
 std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
 
+// Display the start screen
 void DisplayStartScreen(
     const std::vector<std::string>& startScreenContents)
 {
+    // Clear screen first
     clear();
+    // Calculate starting Y position of start text
     int startY = (terminalRows - startScreenContents.size()) / 2;
     int stringLen = 0; // Longest string in startScreenContents
 
     for (int i = 0; i < startScreenContents.size(); i++)
     {
+        // Convert string to wstring to properly count unicode
+        // characters
         std::wstring wideLine =
             converter.from_bytes(startScreenContents[i]);
         int len = wideLine.length();
@@ -134,8 +309,10 @@ void DisplayStartScreen(
         }
     }
 
+    // Calculate starting X position of start text
     int startX = (terminalCols / 2) - (stringLen / 2);
 
+    // Go through each line and print it
     for (int i = 0; i < startScreenContents.size(); i++)
     {
         mvprintw(startY + i, startX, "%s",
@@ -244,8 +421,50 @@ void MakeHorizontalSplit()
     refresh();
 }
 
+// Read in a file to current buffer
+void ReadFile(const char* filename)
+{
+    // Clear the buffer to make room for new file
+    panes[activePane].buffer.clear();
+    std::vector<int> row {};
+
+    // Open file
+    std::ifstream ifs(filename);
+    // Read in content
+    std::string fileContent((std::istreambuf_iterator<char>(ifs)),
+                            (std::istreambuf_iterator<char>()));
+    for (int i = 0; i < fileContent.size(); i++)
+    {
+        if (fileContent[i] == '\n')
+        {
+            panes[activePane].buffer.push_back(row);
+            row.clear();
+        }
+        else
+        {
+            row.push_back(fileContent[i]);
+        }
+    }
+
+    // If file is invalid or has zero content, push a line onto the
+    // buffer
+    if (fileContent.size() == 0)
+    {
+        panes[activePane].buffer.push_back({});
+    }
+
+    if (row.size())
+    {
+        panes[activePane].buffer.push_back(row);
+    }
+
+    ifs.close();
+}
+
+// Execute a command
 void ExecuteCommand(const std::string& cmd)
 {
+    // Close pane or quit program if less than 2 panes
     if (cmd == ":q")
     {
         if (panes.size() == 1)
@@ -258,11 +477,13 @@ void ExecuteCommand(const std::string& cmd)
         }
         else
         {
+            // Delete current pane
             panes.erase(panes.begin() + activePane);
             delwin(panes[activePane].window);
             activePane = 0;
         }
     }
+    // Save file
     else if (cmd == ":w")
     {
         std::ofstream ofs(filename, std::ofstream::out);
@@ -287,48 +508,13 @@ void ExecuteCommand(const std::string& cmd)
             std::to_string(panes[activePane].buffer.size()) +
             " line(s) written to " + "\"" + filename + "\"";
     }
+    // Read file
     else if (cmd.find(":e") == 0)
     {
         std::string rest = cmd.substr(2); // length of ":e"
         rest.erase(0, 1);
         filename = rest;
-        panes[activePane].buffer.clear();
-        try
-        {
-            std::vector<int> row {};
-
-            std::ifstream ifs(filename);
-            std::string   fileContent(
-                (std::istreambuf_iterator<char>(ifs)),
-                (std::istreambuf_iterator<char>()));
-            for (int i = 0; i < fileContent.size(); i++)
-            {
-                if (fileContent[i] == '\n')
-                {
-                    panes[activePane].buffer.push_back(row);
-                    row.clear();
-                }
-                else
-                {
-                    row.push_back(fileContent[i]);
-                }
-            }
-
-            if (fileContent.size() == 0)
-            {
-                panes[activePane].buffer.push_back({});
-            }
-
-            if (row.size())
-            {
-                panes[activePane].buffer.push_back(row);
-            }
-
-            ifs.close();
-        }
-        catch (std::exception& e)
-        {
-        }
+        ReadFile(filename.c_str());
     }
     else if (cmd == ":vsp")
     {
@@ -358,13 +544,13 @@ void InitColors()
 
     if (can_change_color() && COLORS >= 256)
     {
-        init_color(MY_GREY1, 800, 800, 800); // Dark grey
-        init_color(MY_GREY2, 900, 900, 800); // Medium grey
-        init_color(MY_GREY3, 200, 200, 200); // Light grey
+        init_color(MY_GREY1, 800, 800, 800);
+        init_color(MY_GREY2, 900, 900, 800);
+        init_color(MY_GREY3, 200, 200, 200);
 
         // Use custom colors in pairs
-        init_pair(1, MY_GREY3, MY_GREY2); // White on grey
-        init_pair(2, MY_GREY1, MY_GREY3); // Grey on white
+        init_pair(1, MY_GREY3, MY_GREY2); // Normal text
+        init_pair(2, MY_GREY1, MY_GREY3); // Status bar
 
         bkgd(COLOR_PAIR(2));
     }
@@ -396,6 +582,7 @@ void DisplayPane()
 {
     for (int i = 0; i < panes.size(); i++)
     {
+        // References for easy access
         WINDOW* win = panes[i].window;
         Pane&   pane = panes[i];
 
@@ -404,9 +591,11 @@ void DisplayPane()
 
         werase(win); // Clear window first
 
+        // Go row by row on pane
         for (int row = 0; row < pane.rows;
              row++) // Use pane's own dimensions
         {
+            // Get the index of the row we're on
             int bufferRowIndex = row + viewportTopRow;
 
             // Line numbers
@@ -466,6 +655,7 @@ void DisplayStatus()
     int currentRow = panes[activePane].currentRow;
     int currentCol = panes[activePane].currentCol;
 
+    // Turn current mode into a letter that we can display to the user
     std::string modeString;
 
     switch (currentMode)
@@ -565,7 +755,8 @@ void GetInput()
         inputChar = wgetch(panes[activePane].window);
     }
 
-    if (inputChar == ('[' & 0x1f))
+    // Switch to normal mode if escape key is pressed
+    if (inputChar == ('[' & 0x1f)) // ESCAPE key
     {
         if (currentCol)
         {
@@ -577,22 +768,18 @@ void GetInput()
         return;
     }
 
+#ifndef _WIN32
     if (inputChar == KEY_RESIZE)
     {
-        debugFile << "Resize baby\n";
-        getmaxyx(stdscr, terminalRows, terminalCols);
-        terminalRows -= 2;
-        
-        wresize(statusWindow, 2, terminalCols);
-        mvwin(statusWindow, terminalRows, 0);
-
-        refresh();
+        HandleWindowsResize(newCols, newRows);
     }
+#endif
 
     int repeatCount = atoi(countString.c_str());
 
     if (currentMode == Mode_Normal)
     {
+        // Switch to insert mode and move one column back
         if (inputChar == 'i')
         {
             currentMode = Mode_Insert;
@@ -601,8 +788,11 @@ void GetInput()
                 panes[activePane].buffer[currentRow].size())
                 currentCol = 0;
             curs_set(3);
+            // Reset message
+            messageText = "";
             return;
         }
+        // Switch to insert mode
         else if (inputChar == 'a')
         {
             currentMode = Mode_Insert;
@@ -613,12 +803,22 @@ void GetInput()
                              // at the end of the line
                 currentCol++;
             curs_set(3);
+            // Reset message
+            messageText = "";
             return;
+        }
+        // Handle window resize
+        else if (inputChar == ctrl('e'))
+        {
+            CONSOLE_SCREEN_BUFFER_INFO csbi;
+            GetConsoleScreenBufferInfo(hConOut, &csbi);
+            HandleWindowsResize(csbi.dwSize.X, csbi.dwSize.Y);
         }
         else if (inputChar == ctrl('c'))
         {
             messageText = "Type ':q' to exit Slote.";
         }
+        // Switch pane
         else if (inputChar == ctrl('w'))
         {
             if (activePane < panes.size() - 1)
@@ -630,11 +830,13 @@ void GetInput()
                 activePane = 0;
             }
         }
+        // Go into command mode
         else if (inputChar == ':')
         {
             commandBuffer = ":";
             currentMode = Mode_Command;
         }
+        // Switch to insert mode and make new line below current one
         else if (inputChar == 'o')
         {
             std::vector<int> row;
@@ -645,6 +847,7 @@ void GetInput()
             currentCol = 0;
             currentMode = Mode_Insert;
         }
+        // Switch to insert mode and make new line above current one
         else if (inputChar == 'O')
         {
             std::vector<int> row;
@@ -653,19 +856,23 @@ void GetInput()
             currentCol = 0;
             currentMode = Mode_Insert;
         }
+        // Switch to insert mode and go to end of line
         else if (inputChar == 'A')
         {
             currentMode = Mode_Insert;
             currentCol = panes[activePane].buffer[currentRow].size();
         }
+        // Switch to replace mode
         else if (inputChar == 'r')
         {
             currentMode = Mode_Replace;
         }
+        // Switch to continuous replace mode
         else if (inputChar == 'R')
         {
             currentMode = Mode_ReplaceContinuous;
         }
+        // Go to end of file
         else if (inputChar == 'G')
         {
             currentRow = (repeatCount - 1 <=
@@ -685,6 +892,7 @@ void GetInput()
             }
             currentRow += yankedBuffer.size();
         }
+        // Yank current line (Or yank current line and then delete it)
         else if (inputChar == 'y' || inputChar == 'd')
         {
             yankedBuffer.clear();
@@ -981,11 +1189,18 @@ int main(int argc, char** argv)
 {
     debugFile.open("debug.txt");
 
+#ifdef _WIN32
+    hConOut = GetConsoleOutputHandle();
+#endif
+
     StartProgram();
 
+    // Get terminal height and width
     getmaxyx(stdscr, terminalRows, terminalCols);
+    // Make room for status bar
     terminalRows = terminalRows - 2;
 
+    // File whose contents will be displayed on the start screen
     std::string              startFile = "~/slotestart.txt";
     std::vector<std::string> startScreenContents =
         ReadStartScreen(startFile);
@@ -996,13 +1211,16 @@ int main(int argc, char** argv)
 
     DisplayStartScreen(startScreenContents);
 
+    // Wait for input to remove start screen
     while (startScreenChar == -1) { startScreenChar = getch(); }
     clear();
 
+    // Make status window
     statusWindow = newwin(2, terminalCols, terminalRows, 0);
     refresh();
     wbkgd(statusWindow, COLOR_PAIR(2));
 
+    // Make first pane
     panes.push_back({});
     panes[0].window = newwin(terminalRows, terminalCols, 0, 0);
     refresh();
@@ -1012,10 +1230,15 @@ int main(int argc, char** argv)
     panes[0].cols = terminalCols;
     wbkgd(panes[0].window, COLOR_PAIR(2));
 
+    // If argument is provided, assume it to be a file and read its
+    // contents into the buffer
     if (argc == 2)
     {
         filename = argv[1];
+        ReadFile(filename.c_str());
     }
+    // If we have an empty file, add a line to the buffer to not get
+    // index errors and have something to work with
     else
     {
         panes[activePane].buffer.push_back({});
@@ -1059,6 +1282,7 @@ int main(int argc, char** argv)
         continue;
     }
 
+    // End of program
     endwin();
     panes[activePane].buffer.clear();
     yankedBuffer.clear();
