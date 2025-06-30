@@ -365,6 +365,8 @@ void InitColors()
         // Use custom colors in pairs
         init_pair(1, MY_GREY3, MY_GREY2); // White on grey
         init_pair(2, MY_GREY1, MY_GREY3); // Grey on white
+
+        bkgd(COLOR_PAIR(2));
     }
     else
     {
@@ -553,8 +555,8 @@ void DisplayStatus()
 
 void GetInput()
 {
-    int currentRow = panes[activePane].currentRow;
-    int currentCol = panes[activePane].currentCol;
+    int& currentRow = panes[activePane].currentRow;
+    int& currentCol = panes[activePane].currentCol;
 
     int inputChar = -1;
 
@@ -573,6 +575,14 @@ void GetInput()
         curs_set(1);
         countString = "";
         return;
+    }
+
+    if (inputChar == KEY_RESIZE)
+    {
+        getmaxyx(stdscr, terminalRows, terminalCols);
+        terminalRows -= 2;
+
+        refresh();
     }
 
     int repeatCount = atoi(countString.c_str());
@@ -772,32 +782,23 @@ void GetInput()
                     }
                     break;
                 case 'h':
-                    panes[activePane].currentCol
-                        ? panes[activePane].currentCol--
-                        : panes[activePane].currentCol;
-                    currentCol = panes[activePane].currentCol;
+                    currentCol ? currentCol-- : currentCol;
                     break;
                 case 'j':
                     currentRow < panes[activePane].buffer.size() - 1
-                        ? panes[activePane].currentRow++
-                        : panes[activePane].currentRow;
-                    currentRow = panes[activePane].currentRow;
+                        ? currentRow++
+                        : currentRow;
                     break;
                 case 'k':
-                    currentRow ? panes[activePane].currentRow--
-                               : panes[activePane].currentRow;
-                    currentRow = panes[activePane].currentRow;
-                    currentCol = panes[activePane].currentCol;
+                    currentRow ? currentRow-- : currentRow;
                     break;
                 case 'l':
                     currentCol < panes[activePane]
                                          .buffer[currentRow]
                                          .size() -
                                      1
-                        ? panes[activePane].currentCol++
-                        : panes[activePane].currentCol;
-                    currentRow = panes[activePane].currentRow;
-                    currentCol = panes[activePane].currentCol;
+                        ? currentCol++
+                        : currentCol;
 
                     break;
             }
@@ -1030,17 +1031,21 @@ int main(int argc, char** argv)
         {
             viewportTopRow = panes[activePane].currentRow;
         }
-        if (panes[activePane].currentRow >= viewportTopRow + terminalRows)
+        if (panes[activePane].currentRow >=
+            viewportTopRow + terminalRows)
         {
-            viewportTopRow = panes[activePane].currentRow - terminalRows + 1;
+            viewportTopRow =
+                panes[activePane].currentRow - terminalRows + 1;
         }
         if (panes[activePane].currentCol < viewportLeftCol)
         {
             viewportLeftCol = panes[activePane].currentCol;
         }
-        if (panes[activePane].currentCol >= viewportLeftCol + terminalCols)
+        if (panes[activePane].currentCol >=
+            viewportLeftCol + terminalCols)
         {
-            viewportLeftCol = panes[activePane].currentCol - terminalCols + 1;
+            viewportLeftCol =
+                panes[activePane].currentCol - terminalCols + 1;
         }
 
         DisplayPane();
