@@ -579,8 +579,12 @@ void GetInput()
 
     if (inputChar == KEY_RESIZE)
     {
+        debugFile << "Resize baby\n";
         getmaxyx(stdscr, terminalRows, terminalCols);
         terminalRows -= 2;
+        
+        wresize(statusWindow, 2, terminalCols);
+        mvwin(statusWindow, terminalRows, 0);
 
         refresh();
     }
