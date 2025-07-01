@@ -118,6 +118,8 @@ add_executable(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PRIVATE ${CURSES_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     ${CURSES_LIBRARIES}
+    ${CMAKE_SOURCE_DIR}/lib/luajit.lib
+    ${CMAKE_SOURCE_DIR}/lib/lua51.lib
     )
 
 # Add compile definitions for better Unicode support
