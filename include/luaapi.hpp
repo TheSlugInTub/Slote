@@ -142,7 +142,7 @@ struct LuaPane
                                     pane->currentCol);
     }
 
-    std::tuple<int, int> lua_get_viewport_top_col_and_left_col()
+    std::tuple<int, int> lua_get_viewport_top_row_and_left_col()
     {
         return std::tuple<int, int>(pane->viewportTopRow,
                                     pane->viewportLeftCol);
@@ -151,6 +151,21 @@ struct LuaPane
     const char* lua_get_filename()
     {
         return pane->filename.c_str();
+    }
+
+    int lua_get_buffer_size()
+    {
+        return pane->buffer.size();
+    }
+    
+    int lua_get_buffer_row_size(int bufferRowIndex)
+    {
+        return pane->buffer[bufferRowIndex].size();
+    }
+    
+    int lua_get_buffer_char(int row, int col)
+    {
+        return pane->buffer[row][col];
     }
 };
 

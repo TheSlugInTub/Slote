@@ -1,0 +1,115 @@
+Openwell Slote
+Made by Slugarius
+Version 2.0
+
+HELP
+---
+
+MODES
+---
+
+In Slote, there are different "modes" of the editor. There is normal mode,
+where you can navigate and do a lot of different stuff, and insert mode,
+where you can actually type stuff.
+
+You are most likely in normal mode right now but if not, then press escape
+to switch to normal mode.
+
+NAVIGATION
+---
+
+Press h, j, k, l to move the cursor around the screen.
+
+The navigation goes like this:
+
+              ^
+              |
+              k
+         <- h   l ->
+              j
+              |
+              _
+
+The navigation is inspired heavily by vim, actually, this whole editor is 
+inspired heavily by vim.
+
+MORE MODES
+---
+
+The reason I'm not putting this up in the top section is because I want
+the navigation section to be visible from the get-go so people can 
+actually scroll down here.
+
+Replace mode - Press 'r' in normal mode to go into replace mode, you can 
+type out a single character and replace whatever character the cursor was
+on.
+
+Continuous replace mode - Press 'R' (Shift+R) to go into continuous
+replace mode, here you can type to replace whatever was under the cursor but
+you can keep typing until you press escape.
+
+In insert mode, you can type whatever you want and it will get inputted into 
+the buffer. Press escape to go into normal mode from insert mode.
+
+You can see the current mode you're on at the very left of the status bar.
+The character denotes the mode you are on, 'n' for normal, 'i' for insert,
+'r' for replace, 'R' for continuous replace, and 'c' for command.
+
+COMMANDS
+---
+
+There is one more mode, command mode. From normal mode, type ':' to go into
+command mode. Here, you can type in a variety of different commands.
+
+:e [file-name]
+
+This command will open a file. If the file already exists, it will put its
+contents into the current buffer, if the file doesn't exist, then it will 
+clear the buffer and the file can be written to disk using :w.
+
+:w 
+
+This saves the file you are writing to disk. Any changes that you have made 
+to the buffer will be saved onto the file.
+
+:q
+
+Quits the program if there is only one pane. (We will get into panes later,
+but for now, there is only pane)
+Deletes the current pane you are on if there are multiple panes.
+
+:vsp
+
+Makes a vertical split, adding one more pane.
+
+:sp
+
+Makes a horizontal split, adding one more pane.
+
+PANES 
+---
+
+In slote, there are things called panes, this whole text file is inside a pane.
+Panes are where buffers are contained, they are pretty much windows.
+You can make new panes with :vsp and :sp and switch between them by pressing
+Ctrl+W. You can open a new file on a pane by typing :e and save it with :w.
+
+RESIZING
+---
+
+Press Ctrl+E to adjust Slote after resizing. It still won't look right though,
+as pdcurses sucks at resizing so I recommend to just fullscreen your terminal
+first and **then** start slote.
+
+PLUGINS
+---
+
+Plugins are lua files which use the Slote API. There can only be one lua file
+currently, it shall be called slote.lua and placed in the home directory
+("C:\Users\[username]\" for Windows or "~/" for UNIX).
+
+There is already a plugin in the repository called "syntax.lua" which does 
+syntax highlighting for C and C++. You can rename it to "slote.lua" and place it 
+in your home directory.
+
+Please check the documentation for information about the Slote API.

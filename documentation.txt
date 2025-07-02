@@ -1,0 +1,144 @@
+Openwell Slote
+Made by Slugarius
+Version 2.0
+
+DOCUMENTATION
+---
+
+PANES
+---
+
+Panes are data types which are rendered onto the screen.
+The pane struct looks like this:
+
+[104, luaapi.hh]
+```cpp
+
+struct Pane
+{
+    std::vector<std::vector<int>> buffer =
+        {};             // Buffer of text which you will edit
+    int     rows, cols; // Height and width
+    int     x, y;       // Top-right anchor position
+    WINDOW* window;     // Ncurses window
+
+    int currentRow = 0; // Cursor pos
+    int currentCol = 0; // Cursor pos
+    int viewportTopRow = 0;
+    int viewportLeftCol = 0;
+
+    std::string filename = "noname.txt";
+};
+```
+
+The buffer is the text that is displayed in the pane.
+Files get read into the buffer and the entire point of the text editor is to edit 
+this buffer.
+The other members are pretty self-explanatory.
+
+There exists an std::vector of panes in main.cpp.
+
+ARCHITECTURE
+---
+
+Slote uses pdcurses on Windows, and ncurses on Linux. 
+The project also uses sol2 for lua integration.
+
+The project isn't compiling on linux at the moment because sol2 doesn't compile 
+for some reason.
+
+Everything begins from main. Ncurses is initialized with StartProgram(). Lua is 
+initialized with InitLua(). Colors are initialized with InitColors().
+A default pane is created. The status window is created.
+
+A lot of functions are defined for the Lua API in main instead of in luaapi.cpp
+because the vector of panes only exists in main.cpp, this is probably bad and 
+I'll (probably) fix it later.
+
+Next comes the program loop.
+We have some code to make sure that the cursor doesn't step out of bounds of the 
+current pane.
+
+And then next comes the real meat of the program.
+
+First we have DisplayPane(), which displays all the panes we currently have.
+It loops through the vector of panes we have and renders all of them.
+It factors in the x and y position values of the pane and renders it in 
+accordance with them. It also factors in the width and height of each pane.
+
+There is a DisplayPane() function in the C++ code, but this can be overwritten
+if slote.lua has a function called "DisplayPane". It will then call the lua
+function instead of calling the C++ function.
+
+Next comes DisplayStatus(). This function renders the status bar. It does about
+what you expect. It renders two lines, the status bar and the command bar.
+The status bar can be overwritten by the `messageText` string if it is non-null.
+The messageText gets reset to null when going into insert mode.
+
+Next comes the rendering of the start screen. The start screen is its own separate
+window, and it only renders if `isStartScreen` is true.
+
+Next comes GetInput(). The program halts at this function, and blocks the thread
+until a character is inputted. `isStartScreen` is set to false once input is 
+received.
+Once input is received through `wgetch`, it first has an if-else statement to see 
+what mode we're currently on, and filters input based on that.
+There's a cool thing about navigation, if you type in a number in insert mode, 
+the number gets appended to `countString`, and if you then move the cursor with 
+hjkl, it moves the cursor based on that amount and resets the countString
+afterwards.
+
+There's also an ifstream variable called `debugFile` which is used for outputting
+debug into, since the terminal is taken up.
+
+LUA API
+---
+
+Slote uses sol2 for lua integration.
+There's a Lua API for ncurses defined in luaapi.hpp and luaapi.cpp.
+There are also lua functions defined in main.cpp that have to do with pane related 
+stuff.
+
+There's a type called LuaWindow that is sort of a class which acts like an ncurses 
+WINDOW.
+In ncurses, you have to type in `wfunc(win, params)` but in lua, you can just type 
+in `win:func(params)`.
+You have all the standard ncurses functions like move, printw, addch, refresh and 
+more. Please check luaapi.cpp and luaapi.hpp for more functions on the ncurses API.
+
+There is also a type called LuaPane which acts a pane.
+The member functions are:
+
+LuaWindow    get_window(): returns the pane's window.
+int y, x     get_size(): returns the rows and columns of the pane
+int y, x     get_position(): returns the x and y values of the pane
+int y, x     get_cursor_position(): returns the position of the cursor
+int row, col get_viewport_top_row_and_left_col(): pretty self self-explanatory
+const char*  get_filename(): gets the filename of the pane
+
+There are also a number of functions related to getting pane info:
+
+auto pane_type = luaState.new_usertype<LuaPane>(
+    "Pane", sol::constructors<LuaWindow>(),     // BLAH
+    "get_window", &LuaPane::lua_get_window,     // BLAH BLAH
+    "get_size", &LuaPane::lua_get_size,         // BLAH BLAH
+    "get_position", &LuaPane::lua_get_position, // BLAH BLAH
+    "get_cursor_position", &LuaPane::lua_get_cursor_position,
+    "get_viewport_top_row_and_left_col",
+    &LuaPane::lua_get_viewport_top_row_and_left_col, // BLAH BLAH
+    "get_buffer_size", &LuaPane::lua_get_buffer_size,
+    "get_buffer_row_size", &LuaPane::lua_get_buffer_row_size,
+    "get_buffer_char", &LuaPane::lua_get_buffer_char,
+    "get_filename", &LuaPane::lua_get_filename);
+
+I'm too lazy to write the functions neatly here.
+
+There is a function that you can make in lua called DisplayPane().
+The regular DisplayPane() will get replaced with the lua function if there is one.
+I recommend starting off with the DisplayPane implementation provided in syntax.lua.
+
+There are two functions in lua that will be called from C++ besides DisplayPane():
+Start() and Display(). Start gets called right before the main while loop, and 
+Display() gets called after all the rendering is done but right before GetInput().
+
+There's also a function called stdscr which returns the stdscr LuaWindow.

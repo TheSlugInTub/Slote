@@ -208,7 +208,7 @@ function DisplayPane()
             
             -- Line numbers
             win:move(row, 0)
-            if bufferRowIndex < get_pane_buffer_size(pane) then 
+            if bufferRowIndex < pane:get_buffer_size() then 
                 local lineNumStr = string.format("%" .. (LINE_NUMBER_WIDTH - 1) .. "d", bufferRowIndex + 1)
                 win:printw(lineNumStr)
             else
@@ -226,10 +226,10 @@ function DisplayPane()
                 local bufferColIndex = col + viewportLeftCol
                 win:move(row, col + LINE_NUMBER_WIDTH)
                 
-                if bufferRowIndex < get_pane_buffer_size(i) and 
-                   bufferColIndex < get_pane_buffer_row_size(i, bufferRowIndex) then
+                if bufferRowIndex < pane:get_buffer_size() and 
+                   bufferColIndex < pane:get_buffer_row_size(bufferRowIndex) then
                     -- Get character from buffer
-                    local ch = get_pane_buffer_char(i, bufferRowIndex, bufferColIndex)
+                    local ch = pane:get_buffer_char(bufferRowIndex, bufferColIndex)
                     
                     -- Determine color based on context
                     local colorPair = 0
@@ -246,7 +246,7 @@ function DisplayPane()
                             colorPair = getColorPair("string")
                             if ch == stringChar then
                                 -- Check for escape character
-                                if bufferColIndex == 0 or get_pane_buffer_char(i, bufferRowIndex, bufferColIndex - 1) ~= string.byte('\\') then
+                                if bufferColIndex == 0 or pane:get_buffer_char(i, bufferRowIndex, bufferColIndex - 1) ~= string.byte('\\') then
                                     inString = false
                                 end
                             end
@@ -256,8 +256,8 @@ function DisplayPane()
                     -- Handle comments
                     if not inString then
                         if not inBlockComment[i] and not inLineComment then
-                            if ch == string.byte('/') and bufferColIndex < get_pane_buffer_row_size(i, bufferRowIndex) - 1 then
-                                local nextCh = get_pane_buffer_char(i, bufferRowIndex, bufferColIndex + 1)
+                            if ch == string.byte('/') and bufferColIndex < pane:get_buffer_row_size(i, bufferRowIndex) - 1 then
+                                local nextCh = pane:get_buffer_char(i, bufferRowIndex, bufferColIndex + 1)
                                 if nextCh == string.byte('/') then
                                     inLineComment = true
                                     colorPair = getColorPair("comment")
@@ -268,8 +268,8 @@ function DisplayPane()
                             end
                         elseif inBlockComment[i] then
                             colorPair = getColorPair("comment")
-                            if ch == string.byte('*') and bufferColIndex < get_pane_buffer_row_size(i, bufferRowIndex) - 1 then
-                                local nextCh = get_pane_buffer_char(i, bufferRowIndex, bufferColIndex + 1)
+                            if ch == string.byte('*') and bufferColIndex < pane:get_buffer_row_size(i, bufferRowIndex) - 1 then
+                                local nextCh = pane:get_buffer_char(i, bufferRowIndex, bufferColIndex + 1)
                                 if nextCh == string.byte('/') then
                                     inBlockComment[i] = false
                                 end

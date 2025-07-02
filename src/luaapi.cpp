@@ -32,8 +32,11 @@ void InitLua()
         "get_size", &LuaPane::lua_get_size,         // BLAH BLAH
         "get_position", &LuaPane::lua_get_position, // BLAH BLAH
         "get_cursor_position", &LuaPane::lua_get_cursor_position,
-        "get_viewport_top_col_and_left_col",
-        &LuaPane::lua_get_viewport_top_col_and_left_col, // BLAH BLAH
+        "get_viewport_top_row_and_left_col",
+        &LuaPane::lua_get_viewport_top_row_and_left_col, // BLAH BLAH
+        "get_buffer_size", &LuaPane::lua_get_buffer_size,
+        "get_buffer_row_size", &LuaPane::lua_get_buffer_row_size,
+        "get_buffer_char", &LuaPane::lua_get_buffer_char,
         "get_filename", &LuaPane::lua_get_filename);
 
     luaState["newwin"] =
