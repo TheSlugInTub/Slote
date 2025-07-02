@@ -13,6 +13,7 @@ set(CMAKE_C_STANDARD 17)
 
 include_directories(
     include/
+    include/lua/
 )
 
 file(GLOB_RECURSE SOURCES src/*.cpp src/*.c)
@@ -113,14 +114,23 @@ add_executable(${PROJECT_NAME}
     ${SOURCES}
     ${INCLUDESOURCES}
 )
-
-# Link ncurses/pdcurses
+    
 target_include_directories(${PROJECT_NAME} PRIVATE ${CURSES_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PRIVATE 
-    ${CURSES_LIBRARIES}
-    ${CMAKE_SOURCE_DIR}/lib/luajit.lib
-    ${CMAKE_SOURCE_DIR}/lib/lua51.lib
-    )
+
+if (WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        ${CURSES_LIBRARIES}
+        ${CMAKE_SOURCE_DIR}/lib/luajit.lib
+        ${CMAKE_SOURCE_DIR}/lib/lua51.lib
+        )
+else()
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        ${CURSES_LIBRARIES}
+        ${CMAKE_SOURCE_DIR}/lib/libluajit.so
+        ${CMAKE_SOURCE_DIR}/lib/libluajit.a
+        ${CMAKE_SOURCE_DIR}/lib/liblua.a
+        )
+endif()
 
 # Add compile definitions for better Unicode support
 if(WIN32)
