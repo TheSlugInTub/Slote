@@ -97,6 +97,8 @@ struct LuaWindow
     int lua_keypad(bool val) { return keypad(window, val); }
 
     int lua_delwin() { return delwin(window); }
+    
+    int lua_clear() { return wclear(window); }
 };
 
 inline sol::state luaState;

@@ -4,22 +4,25 @@
 
 void InitLua()
 {
+    luaState.open_libraries(sol::lib::base, sol::lib::io,
+                            sol::lib::math, sol::lib::table);
+
     auto window_type = luaState.new_usertype<LuaWindow>(
-        "Window",   sol::constructors<LuaWindow>(),
-        "move",     &LuaWindow::lua_move,         // BLAH BLAH
-        "refresh",  &LuaWindow::lua_refresh,   // BLAH BLAH
+        "Window", sol::constructors<LuaWindow>(), "move",
+        &LuaWindow::lua_move,                 // BLAH BLAH
+        "refresh", &LuaWindow::lua_refresh,   // BLAH BLAH
         "getmaxyx", &LuaWindow::lua_getmaxyx, // BLAH BLAH
-        "nodelay",  &LuaWindow::lua_nodelay,   // BLAH BLAH
-        "erase",    &LuaWindow::lua_erase,       // BLAH BLAH
-        "printw",   &LuaWindow::lua_printw,     // BLAH BLAH
-        "addch",    &LuaWindow::lua_addch,       // BLAH BLAH
-        "attron",   &LuaWindow::lua_attron,     // BLAH BLAH
-        "getch",    &LuaWindow::lua_getch,       // BLAH BLAH
-        "resize",   &LuaWindow::lua_resize,     // BLAH BLAH
-        "delwin",   &LuaWindow::lua_delwin,     // BLAH BLAH
-        "keypad",   &LuaWindow::lua_keypad,     // BLAH BLAH
-        "resize",   &LuaWindow::lua_resize,     // BLAH BLAH
-        "attroff",  &LuaWindow::lua_attroff);  // BLAH BLAH
+        "nodelay", &LuaWindow::lua_nodelay,   // BLAH BLAH
+        "erase", &LuaWindow::lua_erase,       // BLAH BLAH
+        "printw", &LuaWindow::lua_printw,     // BLAH BLAH
+        "addch", &LuaWindow::lua_addch,       // BLAH BLAH
+        "attron", &LuaWindow::lua_attron,     // BLAH BLAH
+        "getch", &LuaWindow::lua_getch,       // BLAH BLAH
+        "resize", &LuaWindow::lua_resize,     // BLAH BLAH
+        "delwin", &LuaWindow::lua_delwin,     // BLAH BLAH
+        "keypad", &LuaWindow::lua_keypad,     // BLAH BLAH
+        "resize", &LuaWindow::lua_resize,     // BLAH BLAH
+        "attroff", &LuaWindow::lua_attroff);  // BLAH BLAH
 
     luaState["newwin"] =
         [](int nlines, int ncols, int begin_y, int begin_x)

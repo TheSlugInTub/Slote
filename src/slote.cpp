@@ -1,12 +1,12 @@
 #include <algorithm>
 #include <cstdlib> // For getenv
-#include <curses.h>
 #include <fstream>
 #include <locale.h>
 #include <string>
 #include <vector>
 #include <codecvt>
 #include <locale>
+#include <luaapi.hpp>
 
 std::ofstream debugFile;
 
@@ -66,7 +66,7 @@ struct Pane
     int currentCol = 0; // Cursor pos
     int viewportTopRow = 0;
     int viewportLeftCol = 0;
-    
+
     std::string filename = "noname.txt";
 };
 
@@ -82,7 +82,7 @@ int               activePane = 0;
 
 std::vector<std::vector<int>> yankedBuffer = {};
 
-std::string statusLine = "";         // Status text
+std::string statusLine = ""; // Status text
 std::string messageText =
     ""; // Message which will display on status line if message isn't
         // null, goes away once you enter insert mode
@@ -210,8 +210,9 @@ void HandleWindowsResize(int newCols, int newRows)
     if (panes[activePane].currentCol >=
         terminalCols - LINE_NUMBER_WIDTH)
     {
-        panes[activePane].viewportLeftCol = panes[activePane].currentCol -
-                          (terminalCols - LINE_NUMBER_WIDTH) + 1;
+        panes[activePane].viewportLeftCol =
+            panes[activePane].currentCol -
+            (terminalCols - LINE_NUMBER_WIDTH) + 1;
     }
 
     // Refresh all windows
@@ -494,7 +495,8 @@ void ExecuteCommand(const std::string& cmd)
     // Save file
     else if (cmd == ":w")
     {
-        std::ofstream ofs(panes[activePane].filename, std::ofstream::out);
+        std::ofstream ofs(panes[activePane].filename,
+                          std::ofstream::out);
         std::string   fileContent = "";
 
         for (int row = 0; row < panes[activePane].buffer.size();
@@ -514,7 +516,8 @@ void ExecuteCommand(const std::string& cmd)
         ofs.close();
         messageText =
             std::to_string(panes[activePane].buffer.size()) +
-            " line(s) written to " + "\"" + panes[activePane].filename + "\"";
+            " line(s) written to " + "\"" +
+            panes[activePane].filename + "\"";
     }
     // Read file
     else if (cmd.find(":e") == 0)
@@ -622,7 +625,8 @@ void DisplayPane()
             int textWidth = pane.cols - LINE_NUMBER_WIDTH;
             for (int col = 0; col < textWidth; col++)
             {
-                int bufferColIndex = col + panes[activePane].viewportLeftCol;
+                int bufferColIndex =
+                    col + panes[activePane].viewportLeftCol;
                 wmove(win, row, col + LINE_NUMBER_WIDTH);
 
                 if (bufferRowIndex < pane.buffer.size() &&
@@ -644,8 +648,9 @@ void DisplayPane()
         if (i == activePane)
         {
             int cursorRow = currentRow - pane.viewportTopRow;
-            int cursorCol =
-                currentCol - panes[activePane].viewportLeftCol + LINE_NUMBER_WIDTH;
+            int cursorCol = currentCol -
+                            panes[activePane].viewportLeftCol +
+                            LINE_NUMBER_WIDTH;
             if (cursorRow >= 0 && cursorRow < pane.rows &&
                 cursorCol >= LINE_NUMBER_WIDTH &&
                 cursorCol < pane.cols)
@@ -685,8 +690,8 @@ void DisplayStatus()
             break;
     }
 
-    statusLine = modeString + " \"" + panes[activePane].filename + "\" " +
-                 std::to_string(currentRow + 1) + "/" +
+    statusLine = modeString + " \"" + panes[activePane].filename +
+                 "\" " + std::to_string(currentRow + 1) + "/" +
                  std::to_string(panes[activePane].buffer.size());
 
     statusLine +=
@@ -745,8 +750,10 @@ void DisplayStatus()
     // Set cursor back to the main pane
     if (currentMode != Mode_Command)
     {
-        wmove(panes[activePane].window, currentRow - panes[activePane].viewportTopRow,
-              currentCol - panes[activePane].viewportLeftCol + LINE_NUMBER_WIDTH);
+        wmove(panes[activePane].window,
+              currentRow - panes[activePane].viewportTopRow,
+              currentCol - panes[activePane].viewportLeftCol +
+                  LINE_NUMBER_WIDTH);
         wrefresh(panes[activePane].window);
     }
 }
@@ -1229,6 +1236,8 @@ int main(int argc, char** argv)
 
     StartProgram();
 
+    InitLua();
+
     // Get terminal height and width
     getmaxyx(stdscr, terminalRows, terminalCols);
     // Make room for status bar
@@ -1277,13 +1286,43 @@ int main(int argc, char** argv)
         panes[activePane].buffer.push_back({});
     }
 
+    try
+    {
+        luaState.safe_script_file(
+            "D:/Repos/Slote/syntax.lua");
+    }
+    catch (const sol::error& e)
+    {
+        debugFile << e.what() << '\n';
+    }
+
+    luaState["DebugLog"] = [](const char* msg) { debugFile << msg; };
+    luaState["DebugLogInt"] = [](int integer) { debugFile << integer; };
+
+    {
+        sol::protected_function func = luaState["Start"];
+        if (func)
+        {
+            auto res = func();
+            if (!res.valid())
+            {
+                sol::error e = res;
+                debugFile << e.what() << '\n';
+            }
+        }
+    }
+        
+    sol::protected_function func = luaState["Display"];
+
     // Main loop of program
     while (TRUE)
     {
         // Make sure cursor doesn't step out of bounds
-        if (panes[activePane].currentRow < panes[activePane].viewportTopRow)
+        if (panes[activePane].currentRow <
+            panes[activePane].viewportTopRow)
         {
-            panes[activePane].viewportTopRow = panes[activePane].currentRow;
+            panes[activePane].viewportTopRow =
+                panes[activePane].currentRow;
         }
         if (panes[activePane].currentRow >=
             panes[activePane].viewportTopRow + terminalRows)
@@ -1291,9 +1330,11 @@ int main(int argc, char** argv)
             panes[activePane].viewportTopRow =
                 panes[activePane].currentRow - terminalRows + 1;
         }
-        if (panes[activePane].currentCol < panes[activePane].viewportLeftCol)
+        if (panes[activePane].currentCol <
+            panes[activePane].viewportLeftCol)
         {
-            panes[activePane].viewportLeftCol = panes[activePane].currentCol;
+            panes[activePane].viewportLeftCol =
+                panes[activePane].currentCol;
         }
         if (panes[activePane].currentCol >=
             panes[activePane].viewportLeftCol + terminalCols)
@@ -1304,11 +1345,26 @@ int main(int argc, char** argv)
 
         DisplayPane();
         DisplayStatus();
-
+        
         if (isStartScreen)
         {
             DisplayStartScreen(startScreenContents);
         }
+
+        if (func)
+        {
+            auto res = func();
+            if (!res.valid())
+            {
+                sol::error e = res;
+                debugFile << e.what();
+            }
+        }
+
+        // wmove(newWin, terminalRows, terminalCols);
+        // wclear(newWin);
+        // wprintw(newWin, "Hi from c++");
+        // wrefresh(newWin);
 
         GetInput();
 
