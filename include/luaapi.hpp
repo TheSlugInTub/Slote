@@ -97,8 +97,61 @@ struct LuaWindow
     int lua_keypad(bool val) { return keypad(window, val); }
 
     int lua_delwin() { return delwin(window); }
-    
+
     int lua_clear() { return wclear(window); }
+};
+
+struct Pane
+{
+    std::vector<std::vector<int>> buffer =
+        {};             // Buffer of text which you will edit
+    int     rows, cols; // Height and width
+    int     x, y;       // Top-right anchor position
+    WINDOW* window;     // Ncurses window
+
+    int currentRow = 0; // Cursor pos
+    int currentCol = 0; // Cursor pos
+    int viewportTopRow = 0;
+    int viewportLeftCol = 0;
+
+    std::string filename = "noname.txt";
+};
+
+struct LuaPane
+{
+    Pane* pane;
+
+    LuaWindow lua_get_window()
+    {
+        return {.window = pane->window, .owning = true};
+    }
+
+    std::tuple<int, int> lua_get_size()
+    {
+        return std::tuple<int, int>(pane->rows, pane->cols);
+    }
+
+    std::tuple<int, int> lua_get_position()
+    {
+        return std::tuple<int, int>(pane->y, pane->x);
+    }
+
+    std::tuple<int, int> lua_get_cursor_position()
+    {
+        return std::tuple<int, int>(pane->currentRow,
+                                    pane->currentCol);
+    }
+
+    std::tuple<int, int> lua_get_viewport_top_col_and_left_col()
+    {
+        return std::tuple<int, int>(pane->viewportTopRow,
+                                    pane->viewportLeftCol);
+    }
+
+    const char* lua_get_filename()
+    {
+        return pane->filename.c_str();
+    }
 };
 
 inline sol::state luaState;

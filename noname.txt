@@ -1,24 +1,13 @@
+sdas
+asd
+asd
+asd
+asd
+asd
+asd
 #include <iostream>
 
 int main()
 {
-
+    std::cout << "Hello, world!";
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

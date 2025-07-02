@@ -54,22 +54,6 @@ enum Mode
     Mode_ReplaceContinuous
 };
 
-struct Pane
-{
-    std::vector<std::vector<int>> buffer =
-        {};             // Buffer of text which you will edit
-    int     rows, cols; // Height and width
-    int     x, y;       // Top-right anchor position
-    WINDOW* window;     // Ncurses window
-
-    int currentRow = 0; // Cursor pos
-    int currentCol = 0; // Cursor pos
-    int viewportTopRow = 0;
-    int viewportLeftCol = 0;
-
-    std::string filename = "noname.txt";
-};
-
 int terminalRows;
 int terminalCols;
 int viewportTopRow;
@@ -284,10 +268,11 @@ std::vector<std::string> ReadStartScreen(const std::string& fileName)
     }
     else
     {
-        startScreenContents.push_back("  Openwell Slote v1.0  ");
-        startScreenContents.push_back("        -------        ");
-        startScreenContents.push_back("      :q to quit       ");
-        startScreenContents.push_back("      :h for help      ");
+        startScreenContents.push_back("    Openwell Slote v1.2    ");
+        startScreenContents.push_back("     Made by Slugarius     ");
+        startScreenContents.push_back("          -------          ");
+        startScreenContents.push_back("        :q to quit         ");
+        startScreenContents.push_back("        :h for help        ");
     }
 
     return startScreenContents;
@@ -591,6 +576,8 @@ void InitColors()
 
 void DisplayPane()
 {
+    debugFile << "Man you takin my job";
+
     for (int i = 0; i < panes.size(); i++)
     {
         // References for easy access
@@ -1288,8 +1275,7 @@ int main(int argc, char** argv)
 
     try
     {
-        luaState.safe_script_file(
-            "D:/Repos/Slote/syntax.lua");
+        luaState.safe_script_file("D:/Repos/Slote/syntax.lua");
     }
     catch (const sol::error& e)
     {
@@ -1297,7 +1283,31 @@ int main(int argc, char** argv)
     }
 
     luaState["DebugLog"] = [](const char* msg) { debugFile << msg; };
-    luaState["DebugLogInt"] = [](int integer) { debugFile << integer; };
+    luaState["DebugLogInt"] = [](int integer)
+    { debugFile << integer; };
+    luaState["get_pane"] = [](int index)
+    { return LuaPane {.pane = &panes[index]}; };
+
+    luaState["get_active_pane"] = []()
+    { return activePane; };
+
+    luaState["get_panes_size"] = []() { return panes.size(); };
+
+    luaState["get_pane_buffer_size"] = [](int index)
+    { return panes[index].buffer.size(); };
+
+    luaState["get_pane_buffer_row_size"] =
+        [](int index, int bufferRowIndex)
+    { return (int)(panes[index].buffer[bufferRowIndex].size()); };
+
+    luaState["get_pane_buffer_char"] =
+        [](int index, int row, int col)
+    { return panes[index].buffer[row][col]; };
+
+    luaState["get_status_window"] = []()
+    { return LuaWindow {.window = statusWindow, .owning = true}; };
+
+    luaState["LINE_NUMBER_WIDTH"] = LINE_NUMBER_WIDTH;
 
     {
         sol::protected_function func = luaState["Start"];
@@ -1311,7 +1321,9 @@ int main(int argc, char** argv)
             }
         }
     }
-        
+
+    sol::protected_function displayFunc = luaState["DisplayPane"];
+
     sol::protected_function func = luaState["Display"];
 
     // Main loop of program
@@ -1343,9 +1355,22 @@ int main(int argc, char** argv)
                 panes[activePane].currentCol - terminalCols + 1;
         }
 
-        DisplayPane();
+        if (displayFunc)
+        {
+            auto res = displayFunc();
+            if (!res.valid())
+            {
+                sol::error e = res;
+                debugFile << e.what() << '\n';
+            }
+        }
+        else
+        {
+            displayFunc();
+        }
+
         DisplayStatus();
-        
+
         if (isStartScreen)
         {
             DisplayStartScreen(startScreenContents);
@@ -1360,11 +1385,6 @@ int main(int argc, char** argv)
                 debugFile << e.what();
             }
         }
-
-        // wmove(newWin, terminalRows, terminalCols);
-        // wclear(newWin);
-        // wprintw(newWin, "Hi from c++");
-        // wrefresh(newWin);
 
         GetInput();
 
