@@ -10,6 +10,7 @@ Forked off of https://github.com/maksimKorzh/v.
 
 - Start screen, you can change the start screen in C:\Users\[user]\slotestart.txt
 OR ~/slotestart.txt on Linux.
+- Plugins with lua. There can only be one lua file at the moment, with it being ~/slote.lua
 - Cursor movement.
 - Modal, with normal, insert, command and replace modes. 
 - Multiple panes! Type :vsp to make a vertical split or :sp to make a horizontal split.
@@ -33,3 +34,5 @@ Type :q in normal mode to quit.
 Type :e [file-name] in normal mode to open a file.
 
 Type :vsp to make a vertical split.
+
+Type :sp to make a horizontal split.
