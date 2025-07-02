@@ -29,6 +29,13 @@ function DisplayPane()
             
             -- Line numbers
             win:move(row, 0)
+            if bufferRowIndex < get_pane_buffer_size(pane) then 
+                local lineNumStr = string.format("%" .. (LINE_NUMBER_WIDTH - 1) .. "d", bufferRowIndex + 1)
+                win:printw(lineNumStr)
+            else
+                local tildaStr = string.format("%" .. (LINE_NUMBER_WIDTH - 1) .. "s", "~")
+                win:printw(tildaStr)
+            end
 
             -- Text content
             local textWidth = cols - LINE_NUMBER_WIDTH

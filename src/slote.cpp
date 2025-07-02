@@ -576,8 +576,6 @@ void InitColors()
 
 void DisplayPane()
 {
-    debugFile << "Man you takin my job";
-
     for (int i = 0; i < panes.size(); i++)
     {
         // References for easy access
