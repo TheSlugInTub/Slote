@@ -1273,7 +1273,7 @@ int main(int argc, char** argv)
 
     try
     {
-        luaState.safe_script_file("D:/Repos/Slote/syntax.lua");
+        luaState.safe_script_file(ExpandTilde("~/slote.lua"));
     }
     catch (const sol::error& e)
     {
@@ -1364,7 +1364,7 @@ int main(int argc, char** argv)
         }
         else
         {
-            displayFunc();
+            DisplayPane();
         }
 
         DisplayStatus();

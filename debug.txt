@@ -1,0 +1,1 @@
+sol: file error: cannot open C:\Users\user/slote.lua: No such file or directory
