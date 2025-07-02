@@ -22,6 +22,7 @@ void InitLua()
         "delwin", &LuaWindow::lua_delwin,     // BLAH BLAH
         "keypad", &LuaWindow::lua_keypad,     // BLAH BLAH
         "resize", &LuaWindow::lua_resize,     // BLAH BLAH
+        "clear", &LuaWindow::lua_clear,     // BLAH BLAH
         "attroff", &LuaWindow::lua_attroff);  // BLAH BLAH
 
     luaState["newwin"] =
