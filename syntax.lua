@@ -196,7 +196,7 @@ function DisplayPane()
         local pane = get_pane(i)
         local win = pane:get_window()
         local rows, cols = pane:get_size()
-        local viewportTopRow, viewportLeftCol = pane:get_viewport_top_col_and_left_col()
+        local viewportTopRow, viewportLeftCol = pane:get_viewport_top_row_and_left_col()
         
         win:erase() -- Clear window first
         inBlockComment[i] = false

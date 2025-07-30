@@ -1,10 +1,14 @@
 # Slote
 
-Minimal and fully customizable vi-like text editor in C++.
+Slote is a minimal and fully customizable vim-like text editor in C++.
 
 Slote uses ncurses for advanced terminal stuff.
 
 Forked off of https://github.com/maksimKorzh/v.
+
+I made Slote as a fun little project to make a command line text editor similar to vim.
+
+I learn a lot of ncurses and terminal stuff while making this.
 
 # Features
 
@@ -36,3 +40,13 @@ Type :e [file-name] in normal mode to open a file.
 Type :vsp to make a vertical split.
 
 Type :sp to make a horizontal split.
+
+# Building
+
+You will need cmake, git and a C++ compiler to compile the project.
+```bash
+git clone https://github.com/TheSlugInTub/Slote
+cd Slote
+mkdir bld
+cmake -S . -B bld
+```

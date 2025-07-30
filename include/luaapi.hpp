@@ -2,6 +2,7 @@
 #include <stdarg.h>
 #include <curses.h>
 #include <format>
+#define _GLIBCXX_USE_C99_CTYPE_TR1
 
 struct LuaWindow
 {
@@ -147,12 +148,7 @@ struct LuaPane
         return std::tuple<int, int>(pane->viewportTopRow,
                                     pane->viewportLeftCol);
     }
-
-    const char* lua_get_filename()
-    {
-        return pane->filename.c_str();
-    }
-
+ 
     int lua_get_buffer_size()
     {
         return pane->buffer.size();
@@ -166,6 +162,11 @@ struct LuaPane
     int lua_get_buffer_char(int row, int col)
     {
         return pane->buffer[row][col];
+    }
+
+    const char* lua_get_filename()
+    {
+        return pane->filename.c_str();
     }
 };
 

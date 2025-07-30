@@ -520,11 +520,6 @@ void ExecuteCommand(const std::string& cmd)
     {
         MakeHorizontalSplit();
     }
-    else if (cmd == ":h")
-    {
-        panes[activePane].filename = "help.txt";
-        ReadFile("help.txt");
-    }
     else
     {
         messageText = "Command " + cmd + " was not found";
@@ -1296,6 +1291,17 @@ int main(int argc, char** argv)
 
     luaState["get_panes_size"] = []() { return panes.size(); };
 
+    luaState["get_pane_buffer_size"] = [](int index)
+    { return panes[index].buffer.size(); };
+
+    luaState["get_pane_buffer_row_size"] =
+        [](int index, int bufferRowIndex)
+    { return (int)(panes[index].buffer[bufferRowIndex].size()); };
+
+    luaState["get_pane_buffer_char"] =
+        [](int index, int row, int col)
+    { return panes[index].buffer[row][col]; };
+
     luaState["get_status_window"] = []()
     { return LuaWindow {.window = statusWindow, .owning = true}; };
 
@@ -1355,7 +1361,7 @@ int main(int argc, char** argv)
                 sol::error e = res;
                 debugFile << e.what() << '\n';
             }
-        }       
+        }
         else
         {
             DisplayPane();
