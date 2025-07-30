@@ -49,4 +49,5 @@ git clone https://github.com/TheSlugInTub/Slote
 cd Slote
 mkdir bld
 cmake -S . -B bld
+cmake --build bld/ --config Release
 ```
